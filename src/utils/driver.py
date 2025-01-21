@@ -33,16 +33,12 @@ def setup_chrome_driver() -> WebDriver:
             driver.quit()
     """
     # Create Chrome options
-    print("6") # ... remove
     chrome_options = _create_chrome_options()
-    print("7") # ... remove
     # Initialize the Chrome driver with configured options
     driver = _initialize_driver(chrome_options)
-    print("8") # ... remove
 
     # Configure driver settings
     _configure_driver(driver)
-    print("9") # ... remove
     
     return driver
 

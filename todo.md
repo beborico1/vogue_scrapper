@@ -2,14 +2,15 @@
 
 ## Must
 
-1. Modularize DataStorageHandler
-2. Run on raspberry pi
+1. Run on raspberry pi
 
 ## Should
 
-1. Vectorize every image features
-2. Make a visualizer of each outfit with its closest neighbors using RESNET
-3. Make a searcher using CLIP
+1. BUG CANALI SLIDESHOW UPDATED ON MFPEN WTF
+2. Run to find discrepancies in the json images emptys, looks emptys, designers emptys, seasons emptys etc.
+3. Vectorize every image features
+4. Make a visualizer of each outfit with its closest neighbors using RESNET
+5. Make a searcher using CLIP
 
 ## Could
 
@@ -20,5 +21,4 @@
 
 ## Wont
 
-1. Update readme
-2. Make it faster
+1. Make it faster

@@ -22,10 +22,6 @@ class DataStorageHandler(DataUpdater):
     ) -> bool:
         """Update storage with new data, automatically determining update type.
         
-        This method provides a simplified interface for updating data,
-        automatically determining the type of update needed based on the
-        provided data.
-        
         Args:
             season_data: Optional season data to update
             designer_data: Optional designer data to update
@@ -37,10 +33,6 @@ class DataStorageHandler(DataUpdater):
         Raises:
             StorageError: If update fails
             ValidationError: If data validation fails
-            
-        Example:
-            >>> handler = DataStorageHandler()
-            >>> success = handler.update_data(season_data={"season": "Spring 2024"})
         """
         try:
             if season_data:
@@ -65,6 +57,84 @@ class DataStorageHandler(DataUpdater):
             self.logger.error(f"Error in update_data: {str(e)}")
             return False
 
+    def is_season_completed(self, season: Dict[str, str]) -> bool:
+        """Check if a season has been completely processed.
+        
+        Args:
+            season: Season data containing season and year keys
+            
+        Returns:
+            True if season is completed
+        """
+        try:
+            data = self.read_data()
+            for stored_season in data["seasons"]:
+                if (stored_season["season"] == season["season"] and 
+                    stored_season["year"] == season["year"]):
+                    return stored_season.get("completed", False)
+            return False
+        except Exception as e:
+            self.logger.error(f"Error checking season completion: {str(e)}")
+            return False
+
+    def is_designer_completed(self, designer_url: str) -> bool:
+        """Check if a designer's show has been completely processed.
+        
+        Args:
+            designer_url: URL identifier of the designer
+            
+        Returns:
+            True if designer is completed
+        """
+        try:
+            data = self.read_data()
+            for season in data["seasons"]:
+                for designer in season.get("designers", []):
+                    if designer["url"] == designer_url:
+                        return designer.get("completed", False)
+            return False
+        except Exception as e:
+            self.logger.error(f"Error checking designer completion: {str(e)}")
+            return False
+
+    def get_incomplete_looks(self, designer_url: str) -> List[Dict[str, Any]]:
+        """Get information about incomplete looks for a designer.
+        
+        Args:
+            designer_url: URL identifier of the designer
+            
+        Returns:
+            List of incomplete looks with their metadata
+        """
+        try:
+            data = self.read_data()
+            for season in data["seasons"]:
+                for designer in season.get("designers", []):
+                    if designer["url"] == designer_url:
+                        incomplete_looks = []
+                        
+                        for look_num in range(1, designer.get("total_looks", 0) + 1):
+                            look_data = None
+                            for look in designer.get("looks", []):
+                                if look["look_number"] == look_num:
+                                    look_data = look
+                                    break
+                            
+                            if not look_data or not look_data.get("completed", False):
+                                incomplete_looks.append({
+                                    "look_number": look_num,
+                                    "existing_images": [
+                                        img["type"] 
+                                        for img in look_data["images"]
+                                    ] if look_data else []
+                                })
+                        
+                        return incomplete_looks
+            return []
+        except Exception as e:
+            self.logger.error(f"Error getting incomplete looks: {str(e)}")
+            return []
+
     def get_progress(self, detailed: bool = False) -> Dict[str, Any]:
         """Get current progress information.
         
@@ -73,10 +143,6 @@ class DataStorageHandler(DataUpdater):
             
         Returns:
             Dictionary containing progress information
-            
-        Example:
-            >>> progress = handler.get_progress(detailed=True)
-            >>> print(f"Overall completion: {progress['overall_completion']}%")
         """
         try:
             data = self.read_data()
@@ -91,9 +157,6 @@ class DataStorageHandler(DataUpdater):
         
         Returns:
             True if save successful
-            
-        Example:
-            >>> success = handler.save_progress()
         """
         try:
             data = self.read_data()
@@ -109,10 +172,6 @@ class DataStorageHandler(DataUpdater):
         
         Returns:
             Dictionary containing storage status information
-            
-        Example:
-            >>> status = handler.get_status()
-            >>> print(f"Current file: {status['current_file']}")
         """
         try:
             current_file = self.get_current_file()
@@ -146,11 +205,6 @@ class DataStorageHandler(DataUpdater):
         
         Returns:
             Dictionary containing validation results
-            
-        Example:
-            >>> validation = handler.validate()
-            >>> if validation['valid']:
-            ...     print("Storage is valid")
         """
         try:
             validation = {

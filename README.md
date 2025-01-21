@@ -93,6 +93,12 @@ python main.py
 To resume scraping from a previous checkpoint:
 
 ```bash
+python main.py --checkpoint vogue_runway_[timestamp].json
+```
+
+Example:
+
+```bash
 python main.py --checkpoint vogue_runway_20250120_191830.json
 ```
 
