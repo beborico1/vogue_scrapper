@@ -2,11 +2,12 @@
 
 This module contains the main scraper orchestrator that coordinates between
 the web scraper, storage handler, and various components to collect and store
-runway show data in real-time.
+runway show data in real-time with automatic checkpoint management.
 """
 
 import argparse
 from typing import Dict, Optional, List, Tuple, Any
+from datetime import datetime
 from pathlib import Path
 
 from src.scraper import VogueScraper
@@ -15,6 +16,31 @@ from src.utils.logging import setup_logger
 from src.utils.storage.storage_handler import DataStorageHandler
 from src.config.settings import BASE_URL, AUTH_URL
 from src.exceptions.errors import AuthenticationError, ScraperError, StorageError
+from src.handlers.slideshow import VogueSlideshowScraper
+
+
+def find_latest_checkpoint() -> Optional[str]:
+    """Find the most recent JSON checkpoint file in the data directory.
+
+    Returns:
+        Optional[str]: Path to latest checkpoint file or None if no checkpoints exist
+    """
+    try:
+        data_dir = Path("data")
+        if not data_dir.exists():
+            return None
+
+        json_files = list(data_dir.glob("*.json"))
+        if not json_files:
+            return None
+
+        latest_file = max(json_files, key=lambda x: x.stat().st_mtime)
+        return str(latest_file)
+
+    except Exception as e:
+        logger = setup_logger()
+        logger.error(f"Error finding latest checkpoint: {str(e)}")
+        return None
 
 
 class VogueRunwayScraper:
@@ -27,6 +53,16 @@ class VogueRunwayScraper:
             checkpoint_file: Optional path to checkpoint file to resume from
         """
         self.logger = setup_logger()
+
+        # If no checkpoint file is provided, try to find the latest one
+        if checkpoint_file is None:
+            latest_checkpoint = find_latest_checkpoint()
+            if latest_checkpoint:
+                self.logger.info(f"Using latest checkpoint file: {latest_checkpoint}")
+                checkpoint_file = latest_checkpoint
+            else:
+                self.logger.info("No existing checkpoint found, starting fresh")
+
         self.storage = DataStorageHandler(checkpoint_file=checkpoint_file)
         self.driver = None
         self.scraper = None
@@ -55,15 +91,13 @@ class VogueRunwayScraper:
         """Validate storage state and data integrity.
 
         Returns:
-            True if storage is valid and ready for use
+            bool: True if storage is valid and ready for use
         """
         try:
-            # First check if storage exists
             if not self.storage or not self.storage.exists():
                 self.logger.error("Storage not initialized")
                 return False
 
-            # Get validation results
             validation = self.storage.validate()
             if not validation["valid"]:
                 self.logger.error(
@@ -71,7 +105,6 @@ class VogueRunwayScraper:
                 )
                 return False
 
-            # Get current status to verify data
             status = self.storage.get_status()
             if not status:
                 self.logger.error("Could not get storage status")
@@ -110,74 +143,101 @@ class VogueRunwayScraper:
             return None
 
     def process_season(self, season: Dict[str, str]) -> None:
-        """Process a single season's data with real-time storage.
-
-        Args:
-            season: Season data to process
-
-        Raises:
-            ScraperError: If season processing fails
-        """
+        """Process a single season's data with real-time storage."""
         self.logger.info(f"Processing season: {season['season']} {season['year']}")
 
         try:
-            # Check if season exists in storage
+            # Check if season exists and initialize if needed
             season_index = self._get_season_index(season)
             if season_index is None:
-                # Save initial season data
                 self.storage.update_data(
                     season_data={
                         "season": season["season"],
                         "year": season["year"],
                         "url": season["url"],
+                        "designers": [],
+                        "total_designers": 0,
+                        "completed_designers": 0,
                     }
                 )
-                season_index = len(self.storage.read_data()["seasons"]) - 1
+                season_index = self._get_season_index(season)
+                if season_index is None:
+                    raise ScraperError("Failed to initialize season data")
 
             # Check if season is already completed
             if not self.storage.is_season_completed(season):
+                self.logger.info(f"Fetching designers for season: {season['url']}")
                 designers = self.scraper.get_designers_for_season(season["url"])
+                self.logger.info(f"Total designers found: {len(designers)}")
+
+                # Initialize slideshow scraper
+                slideshow_scraper = VogueSlideshowScraper(self.driver, self.logger, self.storage)
 
                 for designer_index, designer in enumerate(designers):
+                    # Reset session state at start of each iteration
+                    active_session = False
+
                     try:
                         # Skip if designer is already completed
                         if self.storage.is_designer_completed(designer["url"]):
                             self.logger.info(f"Designer already completed: {designer['name']}")
                             continue
 
-                        # Get slideshow URL
-                        slideshow_url = self.scraper.get_slideshow_url(designer["url"])
-                        if not slideshow_url:
-                            self.logger.warning(
-                                f"No slideshow found for designer: {designer['name']}"
-                            )
-                            continue
+                        # Ensure any existing session is ended
+                        if (
+                            hasattr(self.storage, "_active_session")
+                            and self.storage._active_session
+                        ):
+                            self.storage._end_designer_session()
+
+                        # Start designer session
+                        self.logger.info(f"Starting session for designer: {designer['name']}")
+                        self.storage._start_designer_session(designer["url"])
+                        active_session = True
 
                         # Update designer data
-                        self.storage.update_data(
-                            designer_data={
-                                "season_index": season_index,
-                                "data": {
-                                    "name": designer["name"],
-                                    "url": designer["url"],
-                                    "slideshow_url": slideshow_url,
-                                },
-                                "total_looks": 0,  # Will be updated during image processing
-                            }
+                        designer_data = {
+                            "season_index": season_index,
+                            "designer_index": designer_index,
+                            "data": {
+                                "name": designer["name"],
+                                "url": designer["url"],
+                                "looks": [],
+                            },
+                            "total_looks": 0,
+                        }
+
+                        self.logger.info(f"Updating data for designer: {designer['name']}")
+                        success = self.storage.update_data(designer_data=designer_data)
+                        if not success:
+                            self.logger.error(
+                                f"Failed to update data for designer: {designer['name']}"
+                            )
+                            raise Exception("Failed to update designer data")
+
+                        # Scrape the designer's slideshow
+                        success = slideshow_scraper.scrape_designer_slideshow(
+                            designer["url"], season_index, designer_index
                         )
 
-                        # Process runway images
-                        images_handler = self.scraper._create_images_handler(
-                            season_index, designer_index
-                        )
-                        images_handler.get_runway_images(slideshow_url)
+                        if not success:
+                            self.logger.error(f"Failed to scrape slideshow for: {designer['name']}")
+                            raise Exception("Failed to scrape designer slideshow")
+
+                        # End designer session
+                        if active_session:
+                            self.storage._end_designer_session()
+                            active_session = False
+
+                        # Save progress
+                        self.storage.save_progress()
+                        self.logger.info(f"Completed processing designer: {designer['name']}")
 
                     except Exception as e:
                         self.logger.error(f"Error processing designer {designer['name']}: {str(e)}")
+                        if active_session:
+                            self.storage._end_designer_session()
                         continue
-
-                    # Save progress after each designer
-                    self.storage.save_progress()
 
             else:
                 self.logger.info(f"Season already completed: {season['season']} {season['year']}")
@@ -186,6 +246,8 @@ class VogueRunwayScraper:
             self.logger.error(
                 f"Error processing season {season['season']} {season['year']}: {str(e)}"
             )
+            if hasattr(self.storage, "_active_session") and self.storage._active_session:
+                self.storage._end_designer_session()
             raise ScraperError(f"Season processing failed: {str(e)}")
 
     def resume_from_checkpoint(self) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
@@ -215,11 +277,11 @@ class VogueRunwayScraper:
         """Execute the main scraping process with real-time storage.
 
         This method coordinates the entire scraping process, including:
-        - Storage initialization
-        - Scraper setup
-        - Authentication
+        - Storage initialization and validation
+        - Scraper setup and authentication
+        - Automatic checkpoint management
         - Season processing
-        - Progress tracking
+        - Progress tracking and error handling
         """
         self.logger.info("=== Starting Vogue Scraper ===")
 
@@ -283,7 +345,7 @@ class VogueRunwayScraper:
             try:
                 if self.storage:
                     status = self.storage.get_status()
-                    if status.get("progress"):
+                    if status and status.get("progress"):
                         self.logger.info(f"Final progress: {status['progress']}")
             except Exception as e:
                 self.logger.error(f"Error logging final status: {str(e)}")
@@ -292,11 +354,20 @@ class VogueRunwayScraper:
 
 
 def main():
-    """Main entry point."""
+    """Main entry point with automatic checkpoint detection."""
     parser = argparse.ArgumentParser(description="Vogue Runway Scraper")
-    parser.add_argument("--checkpoint", type=str, help="Path to checkpoint file to resume from")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        help="Path to checkpoint file to resume from (optional, will use latest if not specified)",
+    )
     args = parser.parse_args()
 
+    # Create data directory if it doesn't exist
+    data_dir = Path("data")
+    data_dir.mkdir(exist_ok=True)
+
+    # Initialize and run scraper
     scraper = VogueRunwayScraper(checkpoint_file=args.checkpoint)
     scraper.run()
 

@@ -17,61 +17,71 @@ from pathlib import Path
 
 # Base URLs and authentication
 BASE_URL: str = "https://www.vogue.com"
-AUTH_URL: str = "https://link.condenast.com/click/67901c3f24877e4c0a095539/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9zY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkYlMjIlN0QmcHJvbXB0PXNlbGVjdF9hY2NvdW50K2NvbnNlbnQmc291cmNlPU9JRENfTUFHSUNfTElOS19FUlJPUiZjbGllbnRfaWQ9Y29uZGVuYXN0LmlkZW50aXR5LmZiYzkwOTZkYzYxZjliNzljNWFjNGM4NTk5OGRhMDc1JnJlZGlyZWN0X3VyaT1odHRwcyUzQSUyRiUyRnd3dy52b2d1ZS5jb20lMkZhdXRoJTJGY29tcGxldGUmcmVzcG9uc2VfdHlwZT1jb2RlJmZpcnN0X3RpbWVfc2lnbl9pbj11bmRlZmluZWQmY29kZT1lMjllMTFkMTEyMjVhZWI3YmQ0NTU1NGI3NjI4MDU2NzZlMDQwNTlmMDEwODBiMTg4MDBlOTc3MTQ5NTQwZTg5/678e7581a88d545cd703e31fC94097967"
+AUTH_URL: str = (
+    "https://link.condenast.com/click/679316d12fdf957f2f0ba8b5/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9NGVjZDdmMTEtYmM1NS00NjYwLTg3ZWYtNjdlYThkNmRjNWU0LjE3Mzc2OTI4NzI2MTQmeGlkPWExZWJhMTRhLTNlNmQtNGJjOC1hNjIyLTJhMWVkMDk3Yzk1MiZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkZmYXNoaW9uLXNob3dzJTJGZmFsbC0xOTg4LXJlYWR5LXRvLXdlYXIlM0Zfc3AlM0Q0ZWNkN2YxMS1iYzU1LTQ2NjAtODdlZi02N2VhOGQ2ZGM1ZTQuMTczNzY5Mjg3MjYxNCUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9VkVSU09fTkFWSUdBVElPTiZjbGllbnRfaWQ9Y29uZGVuYXN0LmlkZW50aXR5LmZiYzkwOTZkYzYxZjliNzljNWFjNGM4NTk5OGRhMDc1JnJlZGlyZWN0X3VyaT1odHRwcyUzQSUyRiUyRnd3dy52b2d1ZS5jb20lMkZhdXRoJTJGY29tcGxldGUmcmVzcG9uc2VfdHlwZT1jb2RlJmZpcnN0X3RpbWVfc2lnbl9pbj11bmRlZmluZWQmY29kZT1iNjg3NTczOGRiYjI5YTRiMmI0NDI5ODQwYzk4MzQ4YmY3ZTc0NDEwNjQ0MzBhODYwYjNmMTQyM2U5NDMzZWMx/678e7581a88d545cd703e31fCf741dc27"
+)
 
+
+# Default browser options
 def get_default_browser_options() -> Dict[str, str]:
     """Get default browser options."""
     return {
-        'user_agent': 'Fashion Research (beborico16@gmail.com)',
-        'window_size': '--start-maximized',
-        'notifications': '--disable-notifications'
+        "user_agent": "Fashion Research (beborico16@gmail.com)",
+        "window_size": "--start-maximized",
+        "notifications": "--disable-notifications",
     }
+
 
 @dataclass
 class BrowserConfig:
     """Browser configuration settings."""
+
     OPTIONS: Dict[str, str] = field(default_factory=get_default_browser_options)
     IMPLICIT_WAIT: int = 10
+
 
 @dataclass
 class TimingConfig:
     """Timing-related configuration settings."""
+
     AUTH_WAIT: int = 3
     PAGE_LOAD_WAIT: int = 5
     ELEMENT_WAIT: int = 10
     RETRY_DELAY: int = 2
     RETRY_ATTEMPTS: int = 3
 
+
 @dataclass
 class Selectors:
     """CSS selectors and class names."""
+
     # Navigation elements
-    navigation_wrapper: ClassVar[str] = 'NavigationWrapper-bFftAs'
-    navigation_heading: ClassVar[str] = 'NavigationHeadingWrapper-befTuI'
-    navigation_link: ClassVar[str] = 'NavigationInternalLink-cWEaeo'
-    
+    navigation_wrapper: ClassVar[str] = "NavigationWrapper-bFftAs"
+    navigation_heading: ClassVar[str] = "NavigationHeadingWrapper-befTuI"
+    navigation_link: ClassVar[str] = "NavigationInternalLink-cWEaeo"
+
     # Designer elements
-    designer_item: ClassVar[str] = 'SummaryItemWrapper-iwvBff'
-    designer_link: ClassVar[str] = 'SummaryItemHedLink-civMjp'
-    
+    designer_item: ClassVar[str] = "SummaryItemWrapper-iwvBff"
+    designer_link: ClassVar[str] = "SummaryItemHedLink-civMjp"
+
     # Image elements
-    image_container: ClassVar[str] = 'ResponsiveImageContainer-eybHBd'
-    look_number: ClassVar[str] = 'RunwayGalleryLookNumberText-hidXa'
+    image_container: ClassVar[str] = "ResponsiveImageContainer-eybHBd"
+    look_number: ClassVar[str] = "RunwayGalleryLookNumberText-hidXa"
+
 
 def get_default_image_resolution() -> Dict[str, str]:
     """Get default image resolution settings."""
-    return {
-        'original': '/w_320,',
-        'high_res': '/w_2560,'
-    }
+    return {"original": "/w_320,", "high_res": "/w_2560,"}
+
 
 @dataclass
 class StorageConfig:
     """Storage-related configuration settings."""
+
     BASE_DIR: str = field(default="data")
     TIMESTAMP_FORMAT: str = "%Y%m%d_%H%M%S"
     FILE_PREFIX: str = "vogue_runway"
-    
+
     @property
     def default_data_structure(self) -> Dict[str, Any]:
         """Get default data structure for storage."""
@@ -85,20 +95,23 @@ class StorageConfig:
                     "total_designers": 0,
                     "completed_designers": 0,
                     "total_looks": 0,
-                    "extracted_looks": 0
-                }
+                    "extracted_looks": 0,
+                },
             },
-            "seasons": []
+            "seasons": [],
         }
+
 
 @dataclass
 class ImageConfig:
     """Image-related configuration settings."""
+
     RESOLUTION: Dict[str, str] = field(default_factory=get_default_image_resolution)
+
 
 class Config:
     """Main configuration class that brings all settings together."""
-    
+
     def __init__(self):
         """Initialize configuration settings."""
         self.browser = BrowserConfig()
@@ -106,7 +119,7 @@ class Config:
         self.selectors = Selectors()
         self.image = ImageConfig()
         self.storage = StorageConfig()
-        self.output_dir = os.getenv('VOGUE_OUTPUT_DIR', 'data')
+        self.output_dir = os.getenv("VOGUE_OUTPUT_DIR", "data")
 
     @property
     def chrome_options(self) -> Dict[str, str]:
@@ -117,21 +130,18 @@ class Config:
     def wait_times(self) -> Dict[str, int]:
         """Get all wait time configurations."""
         return {
-            'implicit_wait': self.browser.IMPLICIT_WAIT,
-            'auth_wait': self.timing.AUTH_WAIT,
-            'page_load_wait': self.timing.PAGE_LOAD_WAIT,
-            'element_wait': self.timing.ELEMENT_WAIT
+            "implicit_wait": self.browser.IMPLICIT_WAIT,
+            "auth_wait": self.timing.AUTH_WAIT,
+            "page_load_wait": self.timing.PAGE_LOAD_WAIT,
+            "element_wait": self.timing.ELEMENT_WAIT,
         }
 
     @property
     def storage_paths(self) -> Dict[str, Path]:
         """Get storage-related paths."""
         base_dir = Path(self.storage.BASE_DIR)
-        return {
-            'base_dir': base_dir,
-            'data_dir': base_dir / 'data',
-            'logs_dir': base_dir / 'logs'
-        }
+        return {"base_dir": base_dir, "data_dir": base_dir / "data", "logs_dir": base_dir / "logs"}
+
 
 # Create a global config instance
 config = Config()
@@ -147,20 +157,20 @@ RETRY_DELAY = config.timing.RETRY_DELAY
 
 # Create SELECTORS dictionary from Selectors class variables
 SELECTORS = {
-    'navigation_wrapper': Selectors.navigation_wrapper,
-    'navigation_heading': Selectors.navigation_heading,
-    'navigation_link': Selectors.navigation_link,
-    'designer_item': Selectors.designer_item,
-    'designer_link': Selectors.designer_link,
-    'image_container': Selectors.image_container,
-    'look_number': Selectors.look_number
+    "navigation_wrapper": Selectors.navigation_wrapper,
+    "navigation_heading": Selectors.navigation_heading,
+    "navigation_link": Selectors.navigation_link,
+    "designer_item": Selectors.designer_item,
+    "designer_link": Selectors.designer_link,
+    "image_container": Selectors.image_container,
+    "look_number": Selectors.look_number,
 }
 
 # Storage settings
 STORAGE = {
-    'base_dir': config.storage.BASE_DIR,
-    'timestamp_format': config.storage.TIMESTAMP_FORMAT,
-    'file_prefix': config.storage.FILE_PREFIX
+    "base_dir": config.storage.BASE_DIR,
+    "timestamp_format": config.storage.TIMESTAMP_FORMAT,
+    "file_prefix": config.storage.FILE_PREFIX,
 }
 
 IMAGE_RESOLUTION = config.image.RESOLUTION

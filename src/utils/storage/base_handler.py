@@ -48,43 +48,6 @@ class BaseStorageHandler:
         except Exception as e:
             raise StorageError(f"Error initializing storage handler: {str(e)}")
 
-    def initialize_file(self, initial_data: Optional[Dict[str, Any]] = None) -> Path:
-        """Initialize a new JSON file or use existing checkpoint.
-
-        Args:
-            initial_data: Optional initial data structure
-
-        Returns:
-            Path to the initialized data file
-
-        Raises:
-            StorageError: If file initialization fails
-        """
-        try:
-            # If we have a checkpoint file, validate and use it
-            if self.current_file:
-                if self.current_file.exists():
-                    self.logger.info(f"Using existing checkpoint file: {self.current_file}")
-                    # Validate file is readable
-                    read_json_file(self.current_file)
-                    return self.current_file
-                else:
-                    self.logger.warning(f"Checkpoint file not found: {self.current_file}")
-                    # Don't reset current_file - keep the specified path
-
-            # If no checkpoint or checkpoint doesn't exist, generate new filename
-            if not self.current_file:
-                self.current_file = generate_filename(self.base_dir)
-
-            # Create new file with initial data
-            data = initial_data or self._get_default_structure()
-            write_json_file(self.current_file, data)
-            self.logger.info(f"Initialized new data file: {self.current_file}")
-            return self.current_file
-
-        except Exception as e:
-            raise StorageError(f"Error initializing file: {str(e)}")
-
     def read_data(self) -> Dict[str, Any]:
         """Read the current data file.
 
