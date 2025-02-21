@@ -49,28 +49,46 @@ class VogueSlideshowNavigator:
     def navigate_to_slideshow(self) -> bool:
         """Navigate to the slideshow view."""
         try:
-            wait = WebDriverWait(self.driver, PAGE_LOAD_WAIT)
-            gallery = wait.until(
-                EC.presence_of_element_located((By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF"))
-            )
-
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
-            time.sleep(2)
-
-            button = wait.until(
-                EC.element_to_be_clickable(
-                    (
-                        By.CSS_SELECTOR,
-                        'a[href*="/slideshow/collection"] .button--primary span.button__label',
+            # First try to find the View Slideshow button
+            try:
+                gallery = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                    EC.presence_of_element_located(
+                        (By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF")
                     )
                 )
-            )
 
-            try:
-                button.click()
-            except ElementClickInterceptedException:
-                self.logger.warning("Direct click failed, trying JavaScript click")
-                self.driver.execute_script("arguments[0].click();", button)
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
+                time.sleep(2)
+
+                button = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                    EC.element_to_be_clickable(
+                        (
+                            By.CSS_SELECTOR,
+                            'a[href*="/slideshow/collection"] .button--primary span.button__label',
+                        )
+                    )
+                )
+
+                try:
+                    button.click()
+                except ElementClickInterceptedException:
+                    self.logger.warning("Direct click failed, trying JavaScript click")
+                    self.driver.execute_script("arguments[0].click();", button)
+
+            except (TimeoutException, NoSuchElementException):
+                # If View Slideshow button not found, try to find and click the first look thumbnail
+                self.logger.info("No View Slideshow button found, trying first look thumbnail")
+                first_look = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, '.GridItem-buujkM a[href*="/slideshow/collection#1"]')
+                    )
+                )
+
+                try:
+                    first_look.click()
+                except ElementClickInterceptedException:
+                    self.logger.warning("Direct click failed, trying JavaScript click")
+                    self.driver.execute_script("arguments[0].click();", first_look)
 
             time.sleep(PAGE_LOAD_WAIT)
             self.logger.info(f"Navigated to slideshow URL: {self.driver.current_url}")

@@ -927,13 +927,23 @@ from datetime import datetime
 from pathlib import Path
 import json
 
-from .data_updater import DataUpdater
-from .data_validator import DataValidator
-from ...exceptions.errors import StorageError, ValidationError
+"""Enhanced storage handler with validation and safety checks."""
+
+import logging
+from typing import Dict, Any, Optional
+from datetime import datetime
+from pathlib import Path
+import json
+
+from src.utils.storage.data_updater import DataUpdater
+from src.utils.storage.data_validator import DataValidator
+from src.exceptions.errors import StorageError, ValidationError
 
 
 class DataStorageHandler(DataUpdater):
     """Enhanced storage handler with validation and safety checks."""
+
+    # Rest of the class implementation remains the same
 
     def __init__(self, base_dir: str = None, checkpoint_file: str = None):
         """Initialize the storage handler with validation capabilities.
@@ -1234,28 +1244,18 @@ class DataStorageHandler(DataUpdater):
 
 === ./src/utils/storage/progress_tracker.py ===
 
-"""Progress tracker for monitoring and processing data collection progress.
+"""Progress tracker for monitoring data collection progress."""
 
-This module handles all progress-related calculations, updates, and processing,
-tracking progress across seasons, designers, and looks while managing the 
-scraping process.
-"""
-
-from typing import Dict, Any, List, Tuple, Optional
-from datetime import datetime
-from logging import Logger
-
-
-class ScraperError(Exception):
-    """Custom exception for scraper-related errors."""
-
-    pass
+from typing import Dict, Any, Optional
+from datetime import datetime, timedelta
+import time
+import json
 
 
 class ProgressTracker:
     """Handles progress tracking, statistics calculations, and data processing."""
 
-    def __init__(self, storage: Any, logger: Logger):
+    def __init__(self, storage: Any, logger: Any):
         """Initialize the ProgressTracker.
 
         Args:
@@ -1264,258 +1264,184 @@ class ProgressTracker:
         """
         self.storage = storage
         self.logger = logger
+        self.start_time = datetime.now()
+        self.last_extraction_time = self.start_time
+        self.previous_extracted_count = 0
 
-    def process_season(self, season: Dict[str, str], scraper: Any, driver: Any) -> None:
-        """Process a single season's data with real-time storage.
+        # Initialize base metrics
+        self.initialize_metrics()
 
-        Args:
-            season: Dictionary containing season information
-            scraper: Scraper instance for fetching designer data
-            driver: Web driver instance for scraping
-
-        Raises:
-            ScraperError: If season processing fails
-        """
-        self.logger.info(f"Processing season: {season['season']} {season['year']}")
-
+    def initialize_metrics(self) -> None:
+        """Initialize or update progress metrics in storage."""
         try:
-            # Check if season exists and initialize if needed
-            season_index = self._get_season_index(season)
-            if season_index is None:
-                self._initialize_season(season)
-                season_index = self._get_season_index(season)
-                if season_index is None:
-                    raise ScraperError("Failed to initialize season data")
+            data = self.storage.read_data()
 
-            if not self.storage.is_season_completed(season):
-                self._process_season_designers(season, season_index, scraper, driver)
-            else:
-                self.logger.info(f"Season already completed: {season['season']} {season['year']}")
+            # Ensure metadata structure exists
+            if "metadata" not in data:
+                data["metadata"] = {}
 
-        except Exception as e:
-            self.logger.error(
-                f"Error processing season {season['season']} {season['year']}: {str(e)}"
-            )
-            if hasattr(self.storage, "_active_session") and self.storage._active_session:
-                self.storage._end_designer_session()
-            raise ScraperError(f"Season processing failed: {str(e)}")
+            if "overall_progress" not in data["metadata"]:
+                data["metadata"]["overall_progress"] = {}
 
-    def _process_season_designers(
-        self, season: Dict[str, str], season_index: int, scraper: Any, driver: Any
-    ) -> None:
-        """Process all designers for a given season.
+            progress = data["metadata"]["overall_progress"]
 
-        Args:
-            season: Season information dictionary
-            season_index: Index of the season in storage
-            scraper: Scraper instance
-            driver: Web driver instance
-        """
-        self.logger.info(f"Fetching designers for season: {season['url']}")
-        designers = scraper.get_designers_for_season(season["url"])
-        self.logger.info(f"Total designers found: {len(designers)}")
-
-        slideshow_scraper = self._initialize_slideshow_scraper(driver)
-
-        for designer_index, designer in enumerate(designers):
-            self._process_designer(designer, season_index, designer_index, slideshow_scraper)
-
-    def _process_designer(
-        self,
-        designer: Dict[str, str],
-        season_index: int,
-        designer_index: int,
-        slideshow_scraper: Any,
-    ) -> None:
-        """Process a single designer's data.
-
-        Args:
-            designer: Designer information dictionary
-            season_index: Index of the season
-            designer_index: Index of the designer
-            slideshow_scraper: Slideshow scraper instance
-        """
-        active_session = False
-
-        try:
-            if self.storage.is_designer_completed(designer["url"]):
-                self.logger.info(f"Designer already completed: {designer['name']}")
-                return
-
-            self.logger.info(f"Starting session for designer: {designer['name']}")
-            self.storage._start_designer_session(designer["url"])
-            active_session = True
-
-            designer_data = self._create_designer_data(designer, season_index, designer_index)
-
-            if not self.storage.update_data(designer_data=designer_data):
-                raise ScraperError(f"Failed to update data for designer: {designer['name']}")
-
-            if not slideshow_scraper.scrape_designer_slideshow(
-                designer["url"], season_index, designer_index, self
-            ):
-                raise ScraperError(f"Failed to scrape slideshow for: {designer['name']}")
-
-            self._finalize_designer_processing(active_session, designer["name"])
-
-        except Exception as e:
-            self.logger.error(f"Error processing designer {designer['name']}: {str(e)}")
-            if active_session:
-                self.storage._end_designer_session()
-
-    @staticmethod
-    def update_overall_progress(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update overall progress metrics in metadata.
-
-        Args:
-            data: Current data structure to update
-
-        Returns:
-            Updated data structure with new progress metrics
-        """
-        progress_stats = ProgressTracker._calculate_progress_stats(data["seasons"])
-
-        overall = data["metadata"]["overall_progress"]
-        overall.update(progress_stats)
-        data["metadata"]["last_updated"] = datetime.now().isoformat()
-
-        return data
-
-    @staticmethod
-    def _calculate_progress_stats(seasons: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Calculate progress statistics from seasons data.
-
-        Args:
-            seasons: List of season dictionaries
-
-        Returns:
-            Dictionary containing calculated progress statistics
-        """
-        total_seasons = len(seasons)
-        completed_seasons = sum(1 for s in seasons if s.get("completed", False))
-
-        designer_stats = ProgressTracker._calculate_designer_stats(seasons)
-        look_stats = ProgressTracker._calculate_look_stats(seasons)
-
-        return {
-            "total_seasons": total_seasons,
-            "completed_seasons": completed_seasons,
-            **designer_stats,
-            **look_stats,
-        }
-
-    @staticmethod
-    def _calculate_designer_stats(seasons: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Calculate designer-related statistics."""
-        total_designers = 0
-        completed_designers = 0
-
-        for season in seasons:
-            designers = season.get("designers", [])
-            total_designers += len(designers)
-            completed_designers += sum(1 for d in designers if d.get("completed", False))
-
-        return {"total_designers": total_designers, "completed_designers": completed_designers}
-
-    @staticmethod
-    def _calculate_look_stats(seasons: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Calculate look-related statistics."""
-        total_looks = 0
-        extracted_looks = 0
-
-        for season in seasons:
-            for designer in season.get("designers", []):
-                total_looks += designer.get("total_looks", 0)
-                extracted_looks += designer.get("extracted_looks", 0)
-
-        return {"total_looks": total_looks, "extracted_looks": extracted_looks}
-
-    @staticmethod
-    def get_completion_percentages(data: Dict[str, Any]) -> Dict[str, float]:
-        """Calculate completion percentages for different metrics."""
-        progress = data["metadata"]["overall_progress"]
-
-        return {
-            "season_completion": ProgressTracker._calculate_percentage(
-                progress["completed_seasons"], progress["total_seasons"]
-            ),
-            "designer_completion": ProgressTracker._calculate_percentage(
-                progress["completed_designers"], progress["total_designers"]
-            ),
-            "look_completion": ProgressTracker._calculate_percentage(
-                progress["extracted_looks"], progress["total_looks"]
-            ),
-        }
-
-    @staticmethod
-    def _calculate_percentage(completed: int, total: int) -> float:
-        """Calculate completion percentage."""
-        if total == 0:
-            return 0.0
-        return round((completed / total) * 100, 2)
-
-    def get_progress_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Get a comprehensive progress summary."""
-        percentages = self.get_completion_percentages(data)
-        progress = data["metadata"]["overall_progress"]
-
-        return {
-            "last_updated": data["metadata"]["last_updated"],
-            "overall_completion": sum(percentages.values()) / len(percentages),
-            "progress_stats": {
-                "seasons": f"{progress['completed_seasons']}/{progress['total_seasons']}",
-                "designers": f"{progress['completed_designers']}/{progress['total_designers']}",
-                "looks": f"{progress['extracted_looks']}/{progress['total_looks']}",
-            },
-            "completion_percentages": percentages,
-        }
-
-    def _initialize_season(self, season: Dict[str, str]) -> None:
-        """Initialize a new season in storage."""
-        self.storage.update_data(
-            season_data={
-                "season": season["season"],
-                "year": season["year"],
-                "url": season["url"],
-                "designers": [],
+            # Define default metrics if not present
+            default_metrics = {
+                "total_seasons": len(data.get("seasons", [])),
+                "completed_seasons": 0,
                 "total_designers": 0,
                 "completed_designers": 0,
+                "total_looks": 0,
+                "extracted_looks": 0,
+                "start_time": self.start_time.isoformat(),
+                "elapsed_time": "0:00:00",
+                "estimated_completion": "Unknown",
+                "completion_percentage": 0.0,
+                "extraction_rate": 0.0,
             }
-        )
 
-    def _initialize_slideshow_scraper(self, driver: Any) -> Any:
-        """Initialize the slideshow scraper."""
-        # Note: VogueSlideshowScraper import would be at the top of the file
-        return VogueSlideshowScraper(driver, self.logger, self.storage)
+            # Update missing metrics
+            for key, default_value in default_metrics.items():
+                if key not in progress:
+                    progress[key] = default_value
 
-    def _create_designer_data(
-        self, designer: Dict[str, str], season_index: int, designer_index: int
-    ) -> Dict[str, Any]:
-        """Create designer data structure for storage."""
-        return {
-            "season_index": season_index,
-            "designer_index": designer_index,
-            "data": {
-                "name": designer["name"],
-                "url": designer["url"],
-                "looks": [],
-            },
-            "total_looks": 0,
-            "extracted_looks": 0,
-        }
+            # Update timestamp
+            data["metadata"]["last_updated"] = datetime.now().isoformat()
 
-    def _finalize_designer_processing(self, active_session: bool, designer_name: str) -> None:
-        """Finalize designer processing and cleanup."""
-        if active_session:
-            self.storage._end_designer_session()
-        self.update_overall_progress(self.storage.get_data())
-        self.storage.save_progress()
-        self.logger.info(f"Completed processing designer: {designer_name}")
+            # Save initialized data
+            self.storage.write_data(data)
 
-    def _get_season_index(self, season: Dict[str, str]) -> Optional[int]:
-        """Get the index of a season in storage."""
-        # Implementation would depend on storage interface
-        pass
+        except Exception as e:
+            self.logger.error(f"Error initializing metrics: {str(e)}")
+
+    def update_progress(self, force_save: bool = True) -> None:
+        """Update overall progress metrics."""
+        try:
+            data = self.storage.read_data()
+            progress = data["metadata"]["overall_progress"]
+
+            # Calculate current metrics
+            total_designers = 0
+            completed_designers = 0
+            total_looks = 0
+            extracted_looks = 0
+
+            # Calculate from actual data
+            for season in data.get("seasons", []):
+                designers = season.get("designers", [])
+                total_designers += len(designers)
+
+                for designer in designers:
+                    total_looks += designer.get("total_looks", 0)
+                    current_extracted = self._count_designer_looks(designer)
+                    extracted_looks += current_extracted
+                    if self._is_designer_completed(designer):
+                        completed_designers += 1
+
+            # Update metrics
+            progress.update(
+                {
+                    "total_seasons": len(data.get("seasons", [])),
+                    "total_designers": total_designers,
+                    "completed_designers": completed_designers,
+                    "total_looks": total_looks,
+                    "extracted_looks": extracted_looks,
+                }
+            )
+
+            # Calculate time-based metrics
+            current_time = datetime.now()
+            elapsed = current_time - self.start_time
+            progress["elapsed_time"] = str(timedelta(seconds=int(elapsed.total_seconds())))
+
+            # Calculate rate and completion percentage
+            if total_looks > 0:
+                progress["completion_percentage"] = round((extracted_looks / total_looks) * 100, 2)
+
+                # Calculate extraction rate
+                time_diff = (current_time - self.last_extraction_time).total_seconds() / 60
+                if time_diff > 0 and extracted_looks > self.previous_extracted_count:
+                    rate = (extracted_looks - self.previous_extracted_count) / time_diff
+                    progress["extraction_rate"] = round(rate, 2)
+
+                    # Update estimated completion
+                    if rate > 0:
+                        remaining_looks = total_looks - extracted_looks
+                        remaining_minutes = remaining_looks / rate
+                        estimated_completion = current_time + timedelta(minutes=remaining_minutes)
+                        progress["estimated_completion"] = estimated_completion.isoformat()
+
+                    # Update tracking variables
+                    self.last_extraction_time = current_time
+                    self.previous_extracted_count = extracted_looks
+
+            # Save updates
+            data["metadata"]["last_updated"] = current_time.isoformat()
+            self.storage.write_data(data)
+
+            # Log progress
+            self.logger.info(
+                f"Progress: {extracted_looks}/{total_looks} looks "
+                f"({progress['completion_percentage']}%) - "
+                f"Rate: {progress['extraction_rate']} looks/min"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error updating progress: {str(e)}")
+
+    def _count_designer_looks(self, designer: Dict[str, Any]) -> int:
+        """Count completed looks for a designer."""
+        try:
+            return sum(1 for look in designer.get("looks", []) if self._is_look_completed(look))
+        except Exception:
+            return 0
+
+    def _is_look_completed(self, look: Dict[str, Any]) -> bool:
+        """Check if a look is completed."""
+        try:
+            if not look.get("images"):
+                return False
+            return any(all(key in img for key in ["url", "look_number"]) for img in look["images"])
+        except Exception:
+            return False
+
+    def _is_designer_completed(self, designer: Dict[str, Any]) -> bool:
+        """Check if a designer is completed."""
+        try:
+            total_looks = designer.get("total_looks", 0)
+            if total_looks == 0:
+                return False
+            completed_looks = self._count_designer_looks(designer)
+            return completed_looks >= total_looks
+        except Exception:
+            return False
+
+    def update_look_progress(self, season_index: int, designer_index: int) -> None:
+        """Update progress after processing a look."""
+        try:
+            data = self.storage.read_data()
+            designer = data["seasons"][season_index]["designers"][designer_index]
+
+            # Count and update completed looks
+            completed_looks = self._count_designer_looks(designer)
+            designer["extracted_looks"] = completed_looks
+
+            # Update completion status
+            total_looks = designer.get("total_looks", 0)
+            designer["completed"] = self._is_designer_completed(designer)
+
+            # Save updates and update overall progress
+            self.storage.write_data(data)
+            self.update_progress()
+
+            # Log designer progress
+            self.logger.info(
+                f"Designer progress: {completed_looks}/{total_looks} looks "
+                f"({'completed' if designer['completed'] else 'in progress'})"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error updating look progress: {str(e)}")
 
 
 
@@ -3637,6 +3563,22 @@ ScraperException = ScraperError  # For backwards compatibility
 DataSaveError = StorageError  # For backwards compatibility
 
 
+=== ./src/setup.py ===
+
+from setuptools import setup, find_packages
+
+setup(
+    name="voguescrapper",
+    version="0.1",
+    packages=find_packages(),
+    install_requires=[
+        "selenium",
+        "webdriver_manager",
+    ],
+)
+
+
+
 === ./src/handlers/auth.py ===
 
 # handlers/auth.py
@@ -4730,8 +4672,7 @@ class VogueDesignersHandler:
 
 === ./src/handlers/slideshow.py ===
 
-# handlers/slideshow.py
-"""Enhanced slideshow navigation and image extraction for Vogue Runway scraper."""
+"""Enhanced slideshow scraper with progress tracking."""
 
 from typing import List, Dict, Optional
 import time
@@ -4743,23 +4684,16 @@ from selenium.common.exceptions import (
     NoSuchElementException,
     ElementClickInterceptedException,
 )
-from utils.storage.progress_tracker import ProgressTracker
 
 
 class VogueSlideshowScraper:
-    """Handles complete slideshow navigation and image extraction."""
-
     def __init__(self, driver, logger, storage_handler):
         self.driver = driver
         self.logger = logger
         self.storage = storage_handler
 
     def scrape_designer_slideshow(
-        self,
-        designer_url: str,
-        season_index: int,
-        designer_index: int,
-        progress_tracker: ProgressTracker,
+        self, designer_url: str, season_index: int, designer_index: int, progress_tracker
     ) -> bool:
         """Scrape all looks from a designer's slideshow."""
         try:
@@ -4781,7 +4715,9 @@ class VogueSlideshowScraper:
             designer = season["designers"][designer_index]
             designer["total_looks"] = total_looks
             self.storage.write_data(current_data)
-            progress_tracker.update_overall_progress()
+
+            # Initialize progress
+            progress_tracker.update_progress()
 
             # Process each look
             current_look = 1
@@ -4791,11 +4727,16 @@ class VogueSlideshowScraper:
                 # Extract images for current look
                 look_images = self._extract_look_images(current_look)
                 if look_images:
-                    # Store the images and update progress
+                    # Store the images
                     if self._store_look_data(
                         season_index, designer_index, current_look, look_images
                     ):
+                        # Update progress after each successful look
                         progress_tracker.update_look_progress(season_index, designer_index)
+
+                        # Print progress summary every 5 looks
+                        if current_look % 5 == 0:
+                            progress_tracker.print_progress_summary()
 
                 # Move to next look if not at end
                 if current_look < total_looks:
@@ -4806,7 +4747,8 @@ class VogueSlideshowScraper:
                 current_look += 1
 
             # Final progress update
-            progress_tracker.update_overall_progress()
+            progress_tracker.update_progress(force_save=True)
+            progress_tracker.print_progress_summary()
             return True
 
         except Exception as e:

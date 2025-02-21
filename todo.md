@@ -6,16 +6,23 @@ Please provide with the final complete code for _ with your suggested changes
 
 ## Must
 
+The elapsed_time is also badonkers it should just be created_at last_update
+
+2025-02-20 19:27:44,321 - ERROR - Error scraping designer slideshow: 'ProgressTracker' object has no attribute 'print_progress_summary'
+
+When a season is completed it always lacks 1 in completed designers like this for example:
+      "total_designers": 9,
+      "completed_designers": 8,
+
           "extracted_looks": 0, in the designer object is not being updated
           estimated completion is absolutely off
 
-Collections that do not have a View Slideshow button and just looks like that
 Make an html viewer of the json
 
 ## Should
 
 Run on raspberry pi
-Modularize
+Modularize (no files of more than 300 lines)
 Run to find discrepancies in the json images emptys, looks emptys, designers emptys, seasons emptys etc.
 Vectorize every image features
 Make a visualizer of each outfit with its closest neighbors using RESNET
@@ -33,6 +40,8 @@ Make a searcher using CLIP
 1. Make it faster
 
 ## Done
+
+Handle Collections that do not have a View Slideshow button and just looks like that
 
 The
 

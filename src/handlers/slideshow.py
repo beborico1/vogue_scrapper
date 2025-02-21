@@ -123,27 +123,43 @@ class VogueSlideshowScraper:
             self.driver.get(designer_url)
             time.sleep(2)  # Wait for page load
 
-            # Find and scroll to gallery section
-            gallery = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF"))
-            )
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
-            time.sleep(1)
-
-            # Find and click slideshow button
-            button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable(
-                    (
-                        By.CSS_SELECTOR,
-                        'a[href*="/slideshow/collection"] .button--primary span.button__label',
+            # First try to find and click the View Slideshow button
+            try:
+                gallery = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located(
+                        (By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF")
                     )
                 )
-            )
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
+                time.sleep(1)
 
-            try:
-                button.click()
-            except ElementClickInterceptedException:
-                self.driver.execute_script("arguments[0].click();", button)
+                button = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable(
+                        (
+                            By.CSS_SELECTOR,
+                            'a[href*="/slideshow/collection"] .button--primary span.button__label',
+                        )
+                    )
+                )
+
+                try:
+                    button.click()
+                except ElementClickInterceptedException:
+                    self.driver.execute_script("arguments[0].click();", button)
+
+            except (TimeoutException, NoSuchElementException):
+                # If View Slideshow button not found, try to find and click the first look thumbnail
+                self.logger.info("No View Slideshow button found, trying first look thumbnail")
+                first_look = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, '.GridItem-buujkM a[href*="/slideshow/collection#1"]')
+                    )
+                )
+
+                try:
+                    first_look.click()
+                except ElementClickInterceptedException:
+                    self.driver.execute_script("arguments[0].click();", first_look)
 
             time.sleep(2)  # Wait for slideshow to load
             return True
