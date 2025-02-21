@@ -21,7 +21,6 @@ Make an html viewer of the json
 
 ## Should
 
-Run on raspberry pi
 Modularize (no files of more than 300 lines)
 Run to find discrepancies in the json images emptys, looks emptys, designers emptys, seasons emptys etc.
 Vectorize every image features
@@ -40,6 +39,8 @@ Make a searcher using CLIP
 1. Make it faster
 
 ## Done
+
+Run on raspberry pi
 
 Handle Collections that do not have a View Slideshow button and just looks like that
 
