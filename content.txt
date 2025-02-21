@@ -1,0 +1,5001 @@
+=== ./__init__.py ===
+
+
+
+
+=== ./main.py ===
+
+"""Main entry point for Vogue Runway scraper with real-time storage.
+
+This module contains the main scraper orchestrator that coordinates between
+the web scraper, storage handler, and various components to collect and store
+runway show data in real-time with automatic checkpoint management.
+"""
+
+import argparse
+from typing import Dict, Optional, List, Tuple, Any
+from datetime import datetime
+from pathlib import Path
+
+from src.scraper import VogueScraper
+from src.utils.driver import setup_chrome_driver
+from src.utils.logging import setup_logger
+from src.utils.storage.storage_handler import DataStorageHandler
+from src.config.settings import BASE_URL, AUTH_URL
+from src.exceptions.errors import AuthenticationError, ScraperError, StorageError
+from src.handlers.slideshow import VogueSlideshowScraper
+from src.utils.storage.progress_tracker import ProgressTracker
+
+
+def find_latest_checkpoint() -> Optional[str]:
+    """Find the most recent JSON checkpoint file in the data directory.
+
+    Returns:
+        Optional[str]: Path to latest checkpoint file or None if no checkpoints exist
+    """
+    try:
+        data_dir = Path("data")
+        if not data_dir.exists():
+            return None
+
+        json_files = list(data_dir.glob("*.json"))
+        if not json_files:
+            return None
+
+        latest_file = max(json_files, key=lambda x: x.stat().st_mtime)
+        return str(latest_file)
+
+    except Exception as e:
+        logger = setup_logger()
+        logger.error(f"Error finding latest checkpoint: {str(e)}")
+        return None
+
+
+class VogueRunwayScraper:
+    """Main scraper orchestrator class with real-time data storage."""
+
+    def __init__(self, checkpoint_file: Optional[str] = None):
+        """Initialize the scraper orchestrator.
+
+        Args:
+            checkpoint_file: Optional path to checkpoint file to resume from
+        """
+        self.logger = setup_logger()
+
+        # If no checkpoint file is provided, try to find the latest one
+        if checkpoint_file is None:
+            latest_checkpoint = find_latest_checkpoint()
+            if latest_checkpoint:
+                self.logger.info(f"Using latest checkpoint file: {latest_checkpoint}")
+                checkpoint_file = latest_checkpoint
+            else:
+                self.logger.info("No existing checkpoint found, starting fresh")
+
+        self.storage = DataStorageHandler(checkpoint_file=checkpoint_file)
+        self.driver = None
+        self.scraper = None
+        self.current_file = None
+
+    def initialize_scraper(self) -> None:
+        """Initialize the Selenium driver and VogueScraper.
+
+        Raises:
+            ScraperError: If initialization fails
+        """
+        try:
+            self.driver = setup_chrome_driver()
+            self.scraper = VogueScraper(
+                driver=self.driver,
+                logger=self.logger,
+                storage_handler=self.storage,
+                base_url=BASE_URL,
+            )
+            self.logger.info("Scraper initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize scraper: {str(e)}")
+            raise ScraperError(f"Scraper initialization failed: {str(e)}")
+
+    def validate_storage(self) -> bool:
+        """Validate storage state and data integrity.
+
+        Returns:
+            bool: True if storage is valid and ready for use
+        """
+        try:
+            if not self.storage or not self.storage.exists():
+                self.logger.error("Storage not initialized")
+                return False
+
+            validation = self.storage.validate()
+            if not validation["valid"]:
+                self.logger.error(
+                    f"Storage validation failed: {validation.get('error', 'Unknown error')}"
+                )
+                return False
+
+            status = self.storage.get_status()
+            if not status:
+                self.logger.error("Could not get storage status")
+                return False
+
+            self.logger.info("Storage validation successful")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Storage validation error: {str(e)}")
+            return False
+
+    def _get_season_index(self, season: Dict[str, str]) -> Optional[int]:
+        """Get index of season in storage or None if not found.
+
+        Args:
+            season: Season data containing season and year
+
+        Returns:
+            Index of the season or None if not found
+        """
+        try:
+            if not self.current_file:
+                return None
+
+            current_data = self.storage.read_data()
+            for i, stored_season in enumerate(current_data["seasons"]):
+                if (
+                    stored_season["season"] == season["season"]
+                    and stored_season["year"] == season["year"]
+                ):
+                    return i
+            return None
+        except StorageError as e:
+            self.logger.error(f"Error getting season index: {str(e)}")
+            return None
+
+    def process_season(self, season: Dict[str, str]) -> None:
+        """Process a single season's data with real-time storage."""
+        self.logger.info(f"Processing season: {season['season']} {season['year']}")
+
+        try:
+            # Check if season exists and initialize if needed
+            season_index = self._get_season_index(season)
+            if season_index is None:
+                self.storage.update_data(
+                    season_data={
+                        "season": season["season"],
+                        "year": season["year"],
+                        "url": season["url"],
+                        "designers": [],
+                        "total_designers": 0,
+                        "completed_designers": 0,
+                    }
+                )
+                season_index = self._get_season_index(season)
+                if season_index is None:
+                    raise ScraperError("Failed to initialize season data")
+
+            # Check if season is already completed
+            if not self.storage.is_season_completed(season):
+                self.logger.info(f"Fetching designers for season: {season['url']}")
+                designers = self.scraper.get_designers_for_season(season["url"])
+                self.logger.info(f"Total designers found: {len(designers)}")
+
+                # Initialize slideshow scraper and progress tracker
+                slideshow_scraper = VogueSlideshowScraper(self.driver, self.logger, self.storage)
+                progress_tracker = ProgressTracker(self.storage, self.logger)
+
+                for designer_index, designer in enumerate(designers):
+                    # Reset session state at start of each iteration
+                    active_session = False
+
+                    try:
+                        # Skip if designer is already completed
+                        if self.storage.is_designer_completed(designer["url"]):
+                            self.logger.info(f"Designer already completed: {designer['name']}")
+                            continue
+
+                        # Start designer session
+                        self.logger.info(f"Starting session for designer: {designer['name']}")
+                        self.storage._start_designer_session(designer["url"])
+                        active_session = True
+
+                        # Update designer data
+                        designer_data = {
+                            "season_index": season_index,
+                            "designer_index": designer_index,
+                            "data": {
+                                "name": designer["name"],
+                                "url": designer["url"],
+                                "looks": [],
+                            },
+                            "total_looks": 0,
+                            "extracted_looks": 0,  # Initialize extracted looks counter
+                        }
+
+                        success = self.storage.update_data(designer_data=designer_data)
+                        if not success:
+                            self.logger.error(
+                                f"Failed to update data for designer: {designer['name']}"
+                            )
+                            raise Exception("Failed to update designer data")
+
+                        # Scrape the designer's slideshow
+                        success = slideshow_scraper.scrape_designer_slideshow(
+                            designer["url"],
+                            season_index,
+                            designer_index,
+                            progress_tracker,  # Pass progress tracker to slideshow scraper
+                        )
+
+                        if not success:
+                            self.logger.error(f"Failed to scrape slideshow for: {designer['name']}")
+                            raise Exception("Failed to scrape designer slideshow")
+
+                        # End designer session
+                        if active_session:
+                            self.storage._end_designer_session()
+                            active_session = False
+
+                        # Update progress and save
+                        progress_tracker.update_overall_progress()
+                        self.storage.save_progress()
+                        self.logger.info(f"Completed processing designer: {designer['name']}")
+
+                    except Exception as e:
+                        self.logger.error(f"Error processing designer {designer['name']}: {str(e)}")
+                        if active_session:
+                            self.storage._end_designer_session()
+                        continue
+
+            else:
+                self.logger.info(f"Season already completed: {season['season']} {season['year']}")
+
+        except Exception as e:
+            self.logger.error(
+                f"Error processing season {season['season']} {season['year']}: {str(e)}"
+            )
+            if hasattr(self.storage, "_active_session") and self.storage._active_session:
+                self.storage._end_designer_session()
+            raise ScraperError(f"Season processing failed: {str(e)}")
+
+    def resume_from_checkpoint(self) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+        """Resume scraping from last checkpoint in storage.
+
+        Returns:
+            Tuple of (season_index, season_data) or (None, None) if no checkpoint
+        """
+        try:
+            current_data = self.storage.read_data()
+
+            # Find first incomplete season
+            for season_index, season in enumerate(current_data["seasons"]):
+                if not season.get("completed", False):
+                    self.logger.info(f"Resuming from season: {season['season']} {season['year']}")
+                    return season_index, season
+
+            # All seasons completed
+            self.logger.info("All seasons completed, no checkpoint needed")
+            return None, None
+
+        except Exception as e:
+            self.logger.error(f"Error reading checkpoint: {str(e)}")
+            return None, None
+
+    def run(self) -> None:
+        """Execute the main scraping process with real-time storage.
+
+        This method coordinates the entire scraping process, including:
+        - Storage initialization and validation
+        - Scraper setup and authentication
+        - Automatic checkpoint management
+        - Season processing
+        - Progress tracking and error handling
+        """
+        self.logger.info("=== Starting Vogue Scraper ===")
+
+        try:
+            # Initialize storage
+            self.current_file = self.storage.initialize_file()
+
+            # Validate storage state
+            if not self.validate_storage():
+                raise StorageError("Storage validation failed")
+
+            # Initialize scraper and authenticate
+            self.initialize_scraper()
+            if not self.scraper.authenticate(AUTH_URL):
+                raise AuthenticationError("Failed to authenticate with Vogue")
+
+            # Check for existing progress
+            checkpoint = self.resume_from_checkpoint()
+            if checkpoint[0] is not None:
+                start_index = checkpoint[0]
+                self.logger.info("Resuming from previous checkpoint")
+            else:
+                start_index = 0
+                # Get all seasons if starting fresh
+                seasons = self.scraper.get_seasons_list()
+                if not seasons:
+                    self.logger.error("No seasons found")
+                    return
+
+                self.logger.info(f"Found {len(seasons)} seasons")
+
+                # Save all season metadata
+                for season in seasons:
+                    if not any(word in season["season"] for word in ["MORE FROM", "SEE MORE"]):
+                        self.storage.update_data(season_data=season)
+
+            # Process seasons from checkpoint
+            current_data = self.storage.read_data()
+            for season_index in range(start_index, len(current_data["seasons"])):
+                try:
+                    season = current_data["seasons"][season_index]
+                    self.process_season(season)
+                    # Save progress after each season
+                    self.storage.save_progress()
+                except ScraperError as e:
+                    self.logger.error(str(e))
+                    continue
+
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {str(e)}")
+
+        finally:
+            if self.driver:
+                self.driver.quit()
+
+            # Save final progress
+            if self.storage and hasattr(self.storage, "save_progress"):
+                self.storage.save_progress()
+
+            # Log final status if possible
+            try:
+                if self.storage:
+                    status = self.storage.get_status()
+                    if status and status.get("progress"):
+                        self.logger.info(f"Final progress: {status['progress']}")
+            except Exception as e:
+                self.logger.error(f"Error logging final status: {str(e)}")
+
+        self.logger.info("=== Vogue Scraper Complete ===")
+
+
+def main():
+    """Main entry point with automatic checkpoint detection."""
+    parser = argparse.ArgumentParser(description="Vogue Runway Scraper")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        help="Path to checkpoint file to resume from (optional, will use latest if not specified)",
+    )
+    args = parser.parse_args()
+
+    # Create data directory if it doesn't exist
+    data_dir = Path("data")
+    data_dir.mkdir(exist_ok=True)
+
+    # Initialize and run scraper
+    scraper = VogueRunwayScraper(checkpoint_file=args.checkpoint)
+    scraper.run()
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+=== ./src/scraper.py ===
+
+# scraper.py - Main Vogue Runway scraper implementation.
+"""Main Vogue Runway scraper implementation."""
+
+from typing import List, Dict, Optional
+from selenium.webdriver.remote.webdriver import WebDriver
+from logging import Logger
+
+from .config.settings import BASE_URL
+from .handlers.auth import VogueAuthHandler
+from .handlers.seasons import VogueSeasonsHandler
+from .handlers.designers import VogueDesignersHandler
+from .handlers.shows import VogueShowsHandler
+from .handlers.images.slideshow_navigator import VogueSlideshowNavigator
+from .handlers.images.look_tracker import VogueLookTracker
+from .handlers.images.image_extractor import VogueImageExtractor
+from .handlers.images.gallery_handler import VogueGalleryHandler
+from .handlers.images.images_handler import VogueImagesHandler
+from .utils.storage.handler import DataStorageHandler
+
+
+class VogueScraper:
+    """
+    A scraper for collecting fashion show data from Vogue Runway.
+    Uses composition to delegate specialized tasks to handler classes.
+    """
+
+    def __init__(
+        self,
+        driver: WebDriver,
+        logger: Logger,
+        storage_handler: DataStorageHandler,
+        base_url: str = BASE_URL,
+    ):
+        """
+        Initialize the Vogue scraper.
+
+        Args:
+            driver: Selenium WebDriver instance
+            logger: Logger instance
+            storage_handler: DataStorageHandler for real-time updates
+            base_url: Base URL for Vogue website
+        """
+        self.driver = driver
+        self.logger = logger
+        self.base_url = base_url
+        self.storage = storage_handler
+
+        # Initialize specialized handlers
+        self.auth_handler = VogueAuthHandler(driver, logger, base_url)
+        self.seasons_handler = VogueSeasonsHandler(driver, logger, base_url)
+        self.designers_handler = VogueDesignersHandler(driver, logger)
+        self.shows_handler = VogueShowsHandler(driver, logger)
+
+        # Initialize image handling components
+        self.slideshow_navigator = VogueSlideshowNavigator(driver, logger)
+        self.look_tracker = VogueLookTracker(driver, logger)
+        self.image_extractor = VogueImageExtractor(driver, logger)
+        self.gallery_handler = VogueGalleryHandler(driver, logger)
+
+    def _create_images_handler(self, season_index: int, designer_index: int) -> VogueImagesHandler:
+        """Create an images handler instance with current indices."""
+        return VogueImagesHandler(
+            driver=self.driver,
+            logger=self.logger,
+            slideshow_navigator=self.slideshow_navigator,
+            look_tracker=self.look_tracker,
+            gallery_handler=self.gallery_handler,
+            storage_handler=self.storage,
+            season_index=season_index,
+            designer_index=designer_index,
+        )
+
+    def authenticate(self, auth_url: str) -> bool:
+        """
+        Authenticate with Vogue Runway.
+
+        Args:
+            auth_url: Authentication URL
+
+        Returns:
+            bool: True if authentication successful
+        """
+        return self.auth_handler.authenticate(auth_url)
+
+    def verify_authentication(self) -> bool:
+        """
+        Verify authentication status.
+
+        Returns:
+            bool: True if authenticated
+        """
+        return self.auth_handler.verify_authentication()
+
+    def get_seasons_list(self) -> List[Dict[str, str]]:
+        """
+        Get list of all fashion show seasons.
+
+        Returns:
+            List[Dict[str, str]]: List of season dictionaries with keys:
+                - name: Season name (e.g., "Spring 2024 Ready-to-Wear")
+                - url: URL to season's shows page
+        """
+        return self.seasons_handler.get_seasons_list()
+
+    def get_designers_for_season(self, season_url: str) -> List[Dict[str, str]]:
+        """
+        Get list of designers for a specific season.
+
+        Args:
+            season_url: URL for the season's page
+
+        Returns:
+            List[Dict[str, str]]: List of designer dictionaries with keys:
+                - name: Designer name
+                - url: URL to designer's show page
+        """
+        return self.designers_handler.get_designers_for_season(season_url)
+
+    def get_slideshow_url(self, designer_url: str) -> Optional[str]:
+        """
+        Get slideshow URL from designer page.
+
+        Args:
+            designer_url: URL for the designer's page
+
+        Returns:
+            Optional[str]: URL of the slideshow or None if not found
+        """
+        return self.shows_handler.get_slideshow_url(designer_url)
+
+    def get_runway_images(self, show_url: str) -> List[Dict[str, str]]:
+        """
+        Get all runway images from a show.
+
+        Args:
+            show_url: URL for the runway show
+
+        Returns:
+            List[Dict[str, str]]: List of image dictionaries with keys:
+                - url: Image URL
+                - look_number: Look number in the show
+                - alt_text: Image alt text/description
+        """
+        return self.images_handler.get_runway_images(show_url)
+
+    def scrape_season(self, season_url: str) -> Dict[str, List[Dict[str, str]]]:
+        """
+        Scrape all shows and images for a complete season.
+
+        Args:
+            season_url: URL for the season to scrape
+
+        Returns:
+            Dict[str, List[Dict[str, str]]]: Dictionary containing:
+                - designers: List of designer data
+                - shows: List of show data with associated images
+
+        Example:
+            {
+                'designers': [
+                    {'name': 'Designer 1', 'url': 'http://...'},
+                    {'name': 'Designer 2', 'url': 'http://...'}
+                ],
+                'shows': [
+                    {
+                        'designer_name': 'Designer 1',
+                        'designer_url': 'http://...',
+                        'slideshow_url': 'http://...',
+                        'images': [
+                            {
+                                'url': 'http://...',
+                                'look_number': '1',
+                                'alt_text': 'Look 1'
+                            }
+                        ]
+                    }
+                ]
+            }
+        """
+        season_data = {"designers": [], "shows": []}
+
+        # Get all designers for the season
+        try:
+            designers = self.get_designers_for_season(season_url)
+            season_data["designers"] = designers
+            self.logger.info(f"Found {len(designers)} designers for season")
+
+            # Get shows and images for each designer
+            for designer in designers:
+                try:
+                    # Get slideshow URL
+                    slideshow_url = self.get_slideshow_url(designer["url"])
+                    if not slideshow_url:
+                        self.logger.warning(f"No slideshow found for designer: {designer['name']}")
+                        continue
+
+                    # Get runway images
+                    self.logger.info(f"Processing runway images for {designer['name']}")
+                    images = self.get_runway_images(slideshow_url)
+
+                    show_data = {
+                        "designer_name": designer["name"],
+                        "designer_url": designer["url"],
+                        "slideshow_url": slideshow_url,
+                        "images": images,
+                    }
+                    season_data["shows"].append(show_data)
+                    self.logger.info(
+                        f"Successfully processed {len(images)} images for " f"{designer['name']}"
+                    )
+
+                except Exception as e:
+                    self.logger.error(f"Error processing designer {designer['name']}: {str(e)}")
+                    continue
+
+            return season_data
+
+        except Exception as e:
+            self.logger.error(f"Error scraping season: {str(e)}")
+            raise
+
+    def quit(self):
+        """Clean up resources and close the browser."""
+        try:
+            if self.driver:
+                self.driver.quit()
+                self.logger.info("Successfully closed browser and cleaned up resources")
+        except Exception as e:
+            self.logger.error(f"Error cleaning up resources: {str(e)}")
+
+
+
+=== ./src/config/__init__.py ===
+
+
+
+
+=== ./src/config/settings.py ===
+
+# src/config/settings.py
+
+"""
+Configuration settings for the Vogue runway scraper.
+
+This module contains all configuration settings including URLs,
+browser settings, timing configurations, storage settings, and CSS selectors.
+All configuration constants are centralized here for easy maintenance.
+"""
+
+import os
+from typing import Dict, Any, Optional
+from dataclasses import dataclass, field
+from typing import ClassVar
+from datetime import datetime
+from pathlib import Path
+
+# Base URLs and authentication
+BASE_URL: str = "https://www.vogue.com"
+AUTH_URL: str = (
+    "https://link.condenast.com/click/67b7c204d6bf2ef9530bb1aa/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9NGVjZDdmMTEtYmM1NS00NjYwLTg3ZWYtNjdlYThkNmRjNWU0LjE3Mzc2OTI4NzI2MTQmeGlkPWExZWJhMTRhLTNlNmQtNGJjOC1hNjIyLTJhMWVkMDk3Yzk1MiZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkZmYXNoaW9uLXNob3dzJTJGZmFsbC0xOTg4LXJlYWR5LXRvLXdlYXIlM0Zfc3AlM0Q0ZWNkN2YxMS1iYzU1LTQ2NjAtODdlZi02N2VhOGQ2ZGM1ZTQuMTczNzY5Mjg3MjYxNCUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9T0lEQ19NQUdJQ19MSU5LX0VSUk9SJmNsaWVudF9pZD1jb25kZW5hc3QuaWRlbnRpdHkuZmJjOTA5NmRjNjFmOWI3OWM1YWM0Yzg1OTk4ZGEwNzUmcmVkaXJlY3RfdXJpPWh0dHBzJTNBJTJGJTJGd3d3LnZvZ3VlLmNvbSUyRmF1dGglMkZjb21wbGV0ZSZyZXNwb25zZV90eXBlPWNvZGUmZmlyc3RfdGltZV9zaWduX2luPXVuZGVmaW5lZCZjb2RlPTZiODM3YzM4ZTFiOGE1M2QzNjAyYWJiMDY4ZWMxM2FhYzE2OWE0NGMxNjY5Y2MxZDhhMzE4MjNjMDlmMmJlNTU/678e7581a88d545cd703e31fCe591619d"
+)
+
+
+# Default browser options
+def get_default_browser_options() -> Dict[str, str]:
+    """Get default browser options."""
+    return {
+        "user_agent": "Fashion Research (beborico16@gmail.com)",
+        "window_size": "--start-maximized",
+        "notifications": "--disable-notifications",
+    }
+
+
+@dataclass
+class BrowserConfig:
+    """Browser configuration settings."""
+
+    OPTIONS: Dict[str, str] = field(default_factory=get_default_browser_options)
+    IMPLICIT_WAIT: int = 10
+
+
+@dataclass
+class TimingConfig:
+    """Timing-related configuration settings."""
+
+    AUTH_WAIT: int = 3
+    PAGE_LOAD_WAIT: int = 5
+    ELEMENT_WAIT: int = 10
+    RETRY_DELAY: int = 2
+    RETRY_ATTEMPTS: int = 3
+
+
+@dataclass
+class Selectors:
+    """CSS selectors and class names."""
+
+    # Navigation elements
+    navigation_wrapper: ClassVar[str] = "NavigationWrapper-bFftAs"
+    navigation_heading: ClassVar[str] = "NavigationHeadingWrapper-befTuI"
+    navigation_link: ClassVar[str] = "NavigationInternalLink-cWEaeo"
+
+    # Designer elements
+    designer_item: ClassVar[str] = "SummaryItemWrapper-iwvBff"
+    designer_link: ClassVar[str] = "SummaryItemHedLink-civMjp"
+
+    # Image elements
+    image_container: ClassVar[str] = "ResponsiveImageContainer-eybHBd"
+    look_number: ClassVar[str] = "RunwayGalleryLookNumberText-hidXa"
+
+
+def get_default_image_resolution() -> Dict[str, str]:
+    """Get default image resolution settings."""
+    return {"original": "/w_320,", "high_res": "/w_2560,"}
+
+
+@dataclass
+class StorageConfig:
+    """Storage-related configuration settings."""
+
+    BASE_DIR: str = field(default="data")
+    TIMESTAMP_FORMAT: str = "%Y%m%d_%H%M%S"
+    FILE_PREFIX: str = "vogue_runway"
+
+    @property
+    def default_data_structure(self) -> Dict[str, Any]:
+        """Get default data structure for storage."""
+        return {
+            "metadata": {
+                "created_at": datetime.now().isoformat(),
+                "last_updated": datetime.now().isoformat(),
+                "overall_progress": {
+                    "total_seasons": 0,
+                    "completed_seasons": 0,
+                    "total_designers": 0,
+                    "completed_designers": 0,
+                    "total_looks": 0,
+                    "extracted_looks": 0,
+                },
+            },
+            "seasons": [],
+        }
+
+
+@dataclass
+class ImageConfig:
+    """Image-related configuration settings."""
+
+    RESOLUTION: Dict[str, str] = field(default_factory=get_default_image_resolution)
+
+
+class Config:
+    """Main configuration class that brings all settings together."""
+
+    def __init__(self):
+        """Initialize configuration settings."""
+        self.browser = BrowserConfig()
+        self.timing = TimingConfig()
+        self.selectors = Selectors()
+        self.image = ImageConfig()
+        self.storage = StorageConfig()
+        self.output_dir = os.getenv("VOGUE_OUTPUT_DIR", "data")
+
+    @property
+    def chrome_options(self) -> Dict[str, str]:
+        """Get Chrome browser options."""
+        return self.browser.OPTIONS
+
+    @property
+    def wait_times(self) -> Dict[str, int]:
+        """Get all wait time configurations."""
+        return {
+            "implicit_wait": self.browser.IMPLICIT_WAIT,
+            "auth_wait": self.timing.AUTH_WAIT,
+            "page_load_wait": self.timing.PAGE_LOAD_WAIT,
+            "element_wait": self.timing.ELEMENT_WAIT,
+        }
+
+    @property
+    def storage_paths(self) -> Dict[str, Path]:
+        """Get storage-related paths."""
+        base_dir = Path(self.storage.BASE_DIR)
+        return {"base_dir": base_dir, "data_dir": base_dir / "data", "logs_dir": base_dir / "logs"}
+
+
+# Create a global config instance
+config = Config()
+
+# For backwards compatibility and easier imports
+CHROME_OPTIONS = config.chrome_options
+IMPLICIT_WAIT = config.browser.IMPLICIT_WAIT
+AUTH_WAIT = config.timing.AUTH_WAIT
+PAGE_LOAD_WAIT = config.timing.PAGE_LOAD_WAIT
+ELEMENT_WAIT = config.timing.ELEMENT_WAIT
+RETRY_ATTEMPTS = config.timing.RETRY_ATTEMPTS
+RETRY_DELAY = config.timing.RETRY_DELAY
+
+# Create SELECTORS dictionary from Selectors class variables
+SELECTORS = {
+    "navigation_wrapper": Selectors.navigation_wrapper,
+    "navigation_heading": Selectors.navigation_heading,
+    "navigation_link": Selectors.navigation_link,
+    "designer_item": Selectors.designer_item,
+    "designer_link": Selectors.designer_link,
+    "image_container": Selectors.image_container,
+    "look_number": Selectors.look_number,
+}
+
+# Storage settings
+STORAGE = {
+    "base_dir": config.storage.BASE_DIR,
+    "timestamp_format": config.storage.TIMESTAMP_FORMAT,
+    "file_prefix": config.storage.FILE_PREFIX,
+}
+
+IMAGE_RESOLUTION = config.image.RESOLUTION
+OUTPUT_DIR = config.output_dir
+
+
+
+=== ./src/__init__.py ===
+
+
+
+
+=== ./src/utils/logging.py ===
+
+# utils/logging.py
+"""
+Logging configuration and setup utilities.
+"""
+
+import logging
+from datetime import datetime
+
+
+def setup_logger():
+    """
+    Configure and initialize logging with custom format and file output.
+
+    Returns:
+        logging.Logger: Configured logger instance
+    """
+    log_filename = f'logs/vogue_scraper_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+
+    # Create logger
+    logger = logging.getLogger("vogue_scraper")
+    logger.setLevel(logging.INFO)
+
+    # Create file handler
+    file_handler = logging.FileHandler(log_filename)
+    file_handler.setLevel(logging.INFO)
+
+    # Create console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+
+    # Create formatter
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    # Add handlers to logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    logger.info("Logging setup complete")
+    return logger
+
+
+
+=== ./src/utils/__init__.py ===
+
+
+
+
+=== ./src/utils/storage/validator.py ===
+
+# utils/storage/validator.py
+from typing import Dict, Any, List
+
+
+class DataValidator:
+    """Handles data validation and integrity checks."""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self._operation_log = []
+
+    def validate_data_structure(self, data: Dict[str, Any]) -> bool:
+        """Validate the overall data structure."""
+        try:
+            required_keys = ["metadata", "seasons"]
+            metadata_keys = ["created_at", "last_updated", "overall_progress"]
+
+            if not all(key in data for key in required_keys):
+                return False
+
+            if not all(key in data["metadata"] for key in metadata_keys):
+                return False
+
+            for season in data["seasons"]:
+                if not all(key in season for key in ["season", "year", "url", "designers"]):
+                    return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Data structure validation error: {str(e)}")
+            return False
+
+    def validate_look_data(self, look_data: Dict[str, Any]) -> bool:
+        """Validate look data structure and content."""
+        try:
+            required_fields = ["season_index", "designer_index", "look_number", "images"]
+            if not all(field in look_data for field in required_fields):
+                return False
+
+            for image in look_data["images"]:
+                if not all(key in image for key in ["url", "look_number", "alt_text"]):
+                    return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Look data validation error: {str(e)}")
+            return False
+
+    def get_operation_log(self) -> List[Dict[str, Any]]:
+        """Get log of all storage operations."""
+        return self._operation_log
+
+
+
+=== ./src/utils/storage/handler.py ===
+
+# src/utils/storage/handler.py
+import logging
+from typing import Dict, Any, Optional
+from datetime import datetime
+from pathlib import Path
+import json
+
+from .data_updater import DataUpdater
+from .data_validator import DataValidator
+from ...exceptions.errors import StorageError, ValidationError
+
+
+class DataStorageHandler(DataUpdater):
+    """Enhanced storage handler with validation and safety checks."""
+
+    def __init__(self, base_dir: str = None, checkpoint_file: str = None):
+        """Initialize the storage handler with validation capabilities.
+
+        Args:
+            base_dir: Base directory for storing data files
+            checkpoint_file: Optional path to checkpoint file to resume from
+        """
+        # Initialize logger first
+        self.logger = logging.getLogger(__name__)
+
+        # Initialize parent class
+        super().__init__(base_dir, checkpoint_file)
+
+        # Initialize components
+        self.validator = DataValidator(self.logger)
+        self._active_session = None
+        self._transaction_log = []
+        self._checkpoints = {}
+
+        # Set up base directory
+        self.base_dir = Path(base_dir) if base_dir else Path("data")
+        self.base_dir.mkdir(exist_ok=True)
+
+        # Initialize or load checkpoint
+        if checkpoint_file:
+            self.current_file = Path(checkpoint_file)
+        else:
+            # Generate new filename with timestamp if no checkpoint
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.current_file = self.base_dir / f"vogue_data_{timestamp}.json"
+
+    def initialize_file(self) -> Path:
+        """Initialize storage file with proper structure."""
+        try:
+            if self.current_file.exists():
+                self.logger.info(f"Using existing file: {self.current_file}")
+                return self.current_file
+
+            # Create new file with initial structure
+            initial_data = {
+                "metadata": {
+                    "created_at": datetime.now().isoformat(),
+                    "last_updated": datetime.now().isoformat(),
+                    "overall_progress": {
+                        "total_seasons": 0,
+                        "completed_seasons": 0,
+                        "total_designers": 0,
+                        "completed_designers": 0,
+                        "total_looks": 0,
+                        "extracted_looks": 0,
+                    },
+                },
+                "seasons": [],
+            }
+
+            # Ensure directory exists
+            self.current_file.parent.mkdir(exist_ok=True)
+
+            # Write initial data
+            with open(self.current_file, "w", encoding="utf-8") as f:
+                json.dump(initial_data, f, indent=2)
+
+            self.logger.info(f"Initialized new file: {self.current_file}")
+            return self.current_file
+
+        except Exception as e:
+            if self.logger:  # Check if logger exists before using
+                self.logger.error(f"Error initializing file: {str(e)}")
+            raise StorageError(f"File initialization failed: {str(e)}")
+
+    def validate(self) -> Dict[str, Any]:
+        """Validate current storage state."""
+        try:
+            if not self.current_file:
+                return {"valid": False, "error": "No file initialized"}
+
+            current_data = self.read_data()
+            required_keys = ["metadata", "seasons"]
+            metadata_keys = ["created_at", "last_updated", "overall_progress"]
+
+            # Check basic structure
+            if not all(key in current_data for key in required_keys):
+                return {"valid": False, "error": "Missing required top-level keys"}
+
+            if not all(key in current_data["metadata"] for key in metadata_keys):
+                return {"valid": False, "error": "Invalid metadata structure"}
+
+            # Validate season data
+            for season in current_data["seasons"]:
+                if not all(key in season for key in ["season", "year", "url", "designers"]):
+                    return {"valid": False, "error": "Invalid season structure"}
+
+            return {"valid": True}
+
+        except Exception as e:
+            self.logger.error(f"Validation error: {str(e)}")
+            return {"valid": False, "error": f"Validation failed: {str(e)}"}
+
+    def get_status(self) -> Dict[str, Any]:
+        """Get current scraping status and progress."""
+        try:
+            current_data = self.read_data()
+            progress = current_data["metadata"]["overall_progress"]
+
+            return {
+                "total_seasons": progress["total_seasons"],
+                "completed_seasons": progress["completed_seasons"],
+                "total_designers": progress["total_designers"],
+                "completed_designers": progress["completed_designers"],
+                "total_looks": progress["total_looks"],
+                "extracted_looks": progress["extracted_looks"],
+                "current_file": str(self.current_file),
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting status: {str(e)}")
+            return {}
+
+    def save_progress(self) -> None:
+        """Save current progress to disk."""
+        try:
+            # Get current data
+            current_data = self.read_data()
+
+            # Update last_updated timestamp
+            current_data["metadata"]["last_updated"] = datetime.now().isoformat()
+
+            # Write updated data
+            self.write_data(current_data)
+            self.logger.info("Progress saved successfully")
+
+        except Exception as e:
+            self.logger.error(f"Error saving progress: {str(e)}")
+            raise StorageError(f"Failed to save progress: {str(e)}")
+
+    def read_data(self) -> Dict[str, Any]:
+        """Read data from storage file."""
+        try:
+            with open(self.current_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            self.logger.error(f"Failed to read data: {str(e)}")
+            raise StorageError(f"Failed to read data: {str(e)}")
+
+    def write_data(self, data: Dict[str, Any]) -> None:
+        """Write data to storage file."""
+        try:
+            with open(self.current_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            self.logger.error(f"Failed to write data: {str(e)}")
+            raise StorageError(f"Failed to write data: {str(e)}")
+
+    def is_season_completed(self, season: Dict[str, str]) -> bool:
+        """Check if a season has been completely processed.
+
+        Args:
+            season: Season data containing season name and year
+
+        Returns:
+            bool: True if season is completed
+        """
+        try:
+            if not self.current_file:
+                return False
+
+            current_data = self.read_data()
+            season_name = season["season"]
+            season_year = season["year"]
+
+            # Find matching season in storage
+            for stored_season in current_data["seasons"]:
+                if stored_season["season"] == season_name and stored_season["year"] == season_year:
+
+                    # Must have designers and total_designers set
+                    if (
+                        not stored_season.get("designers")
+                        or stored_season.get("total_designers", 0) == 0
+                    ):
+                        return False
+
+                    total_designers = stored_season.get("total_designers", 0)
+                    completed_designers = sum(
+                        1
+                        for designer in stored_season["designers"]
+                        if self.is_designer_completed(designer["url"])
+                    )
+
+                    # All designers must be completed
+                    return completed_designers >= total_designers
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Error checking season completion: {str(e)}")
+            return False
+
+    def is_designer_completed(self, designer_url: str) -> bool:
+        """Check if a designer's show has been completely processed.
+
+        Args:
+            designer_url: URL identifier of the designer
+
+        Returns:
+            bool: True if designer is completed
+        """
+        try:
+            if not self.current_file:
+                return False
+
+            current_data = self.read_data()
+
+            # Search through all seasons and designers
+            for season in current_data["seasons"]:
+                for designer in season.get("designers", []):
+                    if designer["url"] == designer_url:
+                        return self._is_designer_fully_completed(designer)
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Error checking designer completion: {str(e)}")
+            return False
+
+    def _is_designer_fully_completed(self, designer: Dict[str, Any]) -> bool:
+        """Helper method to check if a designer is fully completed.
+
+        Args:
+            designer: Designer data dictionary
+
+        Returns:
+            bool: True if designer is fully completed
+        """
+        try:
+            # Must have looks and total_looks set
+            if not designer.get("looks") or designer.get("total_looks", 0) == 0:
+                return False
+
+            total_looks = designer.get("total_looks", 0)
+            completed_looks = sum(
+                1 for look in designer["looks"] if self._is_look_fully_completed(look)
+            )
+
+            # All looks must be completed and have images
+            is_completed = completed_looks >= total_looks
+
+            # Update designer completion status
+            designer["completed"] = is_completed
+            return is_completed
+
+        except Exception as e:
+            self.logger.error(f"Error checking designer completion status: {str(e)}")
+            return False
+
+    def _is_look_fully_completed(self, look: Dict[str, Any]) -> bool:
+        """Helper method to check if a look is fully completed.
+
+        Args:
+            look: Look data dictionary
+
+        Returns:
+            bool: True if look is fully completed
+        """
+        try:
+            # Check if look has images and all required fields
+            return bool(look.get("images")) and all(
+                required_key in image
+                for image in look["images"]
+                for required_key in ["url", "look_number", "type", "timestamp"]
+            )
+        except Exception as e:
+            self.logger.error(f"Error checking look completion status: {str(e)}")
+            return False
+
+    def _update_completion_status(self, designer: Dict[str, Any], season: Dict[str, Any]) -> None:
+        """Update completion status for designer and season.
+
+        Args:
+            designer: Designer data dictionary
+            season: Season data dictionary
+        """
+        try:
+            # Update designer completion
+            designer_completed = self._is_designer_fully_completed(designer)
+            designer["completed"] = designer_completed
+
+            # Update season completion if all designers are completed
+            if designer_completed:
+                season_completed = all(
+                    self._is_designer_fully_completed(d) for d in season.get("designers", [])
+                )
+                season["completed"] = season_completed
+
+        except Exception as e:
+            self.logger.error(f"Error updating completion status: {str(e)}")
+
+
+
+=== ./src/utils/storage/progress_tracker.py ===
+
+"""Progress tracker for monitoring and processing data collection progress.
+
+This module handles all progress-related calculations, updates, and processing,
+tracking progress across seasons, designers, and looks while managing the 
+scraping process.
+"""
+
+from typing import Dict, Any, List, Tuple, Optional
+from datetime import datetime
+from logging import Logger
+
+
+class ScraperError(Exception):
+    """Custom exception for scraper-related errors."""
+
+    pass
+
+
+class ProgressTracker:
+    """Handles progress tracking, statistics calculations, and data processing."""
+
+    def __init__(self, storage: Any, logger: Logger):
+        """Initialize the ProgressTracker.
+
+        Args:
+            storage: Storage interface for data persistence
+            logger: Logger instance for tracking operations
+        """
+        self.storage = storage
+        self.logger = logger
+
+    def process_season(self, season: Dict[str, str], scraper: Any, driver: Any) -> None:
+        """Process a single season's data with real-time storage.
+
+        Args:
+            season: Dictionary containing season information
+            scraper: Scraper instance for fetching designer data
+            driver: Web driver instance for scraping
+
+        Raises:
+            ScraperError: If season processing fails
+        """
+        self.logger.info(f"Processing season: {season['season']} {season['year']}")
+
+        try:
+            # Check if season exists and initialize if needed
+            season_index = self._get_season_index(season)
+            if season_index is None:
+                self._initialize_season(season)
+                season_index = self._get_season_index(season)
+                if season_index is None:
+                    raise ScraperError("Failed to initialize season data")
+
+            if not self.storage.is_season_completed(season):
+                self._process_season_designers(season, season_index, scraper, driver)
+            else:
+                self.logger.info(f"Season already completed: {season['season']} {season['year']}")
+
+        except Exception as e:
+            self.logger.error(
+                f"Error processing season {season['season']} {season['year']}: {str(e)}"
+            )
+            if hasattr(self.storage, "_active_session") and self.storage._active_session:
+                self.storage._end_designer_session()
+            raise ScraperError(f"Season processing failed: {str(e)}")
+
+    def _process_season_designers(
+        self, season: Dict[str, str], season_index: int, scraper: Any, driver: Any
+    ) -> None:
+        """Process all designers for a given season.
+
+        Args:
+            season: Season information dictionary
+            season_index: Index of the season in storage
+            scraper: Scraper instance
+            driver: Web driver instance
+        """
+        self.logger.info(f"Fetching designers for season: {season['url']}")
+        designers = scraper.get_designers_for_season(season["url"])
+        self.logger.info(f"Total designers found: {len(designers)}")
+
+        slideshow_scraper = self._initialize_slideshow_scraper(driver)
+
+        for designer_index, designer in enumerate(designers):
+            self._process_designer(designer, season_index, designer_index, slideshow_scraper)
+
+    def _process_designer(
+        self,
+        designer: Dict[str, str],
+        season_index: int,
+        designer_index: int,
+        slideshow_scraper: Any,
+    ) -> None:
+        """Process a single designer's data.
+
+        Args:
+            designer: Designer information dictionary
+            season_index: Index of the season
+            designer_index: Index of the designer
+            slideshow_scraper: Slideshow scraper instance
+        """
+        active_session = False
+
+        try:
+            if self.storage.is_designer_completed(designer["url"]):
+                self.logger.info(f"Designer already completed: {designer['name']}")
+                return
+
+            self.logger.info(f"Starting session for designer: {designer['name']}")
+            self.storage._start_designer_session(designer["url"])
+            active_session = True
+
+            designer_data = self._create_designer_data(designer, season_index, designer_index)
+
+            if not self.storage.update_data(designer_data=designer_data):
+                raise ScraperError(f"Failed to update data for designer: {designer['name']}")
+
+            if not slideshow_scraper.scrape_designer_slideshow(
+                designer["url"], season_index, designer_index, self
+            ):
+                raise ScraperError(f"Failed to scrape slideshow for: {designer['name']}")
+
+            self._finalize_designer_processing(active_session, designer["name"])
+
+        except Exception as e:
+            self.logger.error(f"Error processing designer {designer['name']}: {str(e)}")
+            if active_session:
+                self.storage._end_designer_session()
+
+    @staticmethod
+    def update_overall_progress(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update overall progress metrics in metadata.
+
+        Args:
+            data: Current data structure to update
+
+        Returns:
+            Updated data structure with new progress metrics
+        """
+        progress_stats = ProgressTracker._calculate_progress_stats(data["seasons"])
+
+        overall = data["metadata"]["overall_progress"]
+        overall.update(progress_stats)
+        data["metadata"]["last_updated"] = datetime.now().isoformat()
+
+        return data
+
+    @staticmethod
+    def _calculate_progress_stats(seasons: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate progress statistics from seasons data.
+
+        Args:
+            seasons: List of season dictionaries
+
+        Returns:
+            Dictionary containing calculated progress statistics
+        """
+        total_seasons = len(seasons)
+        completed_seasons = sum(1 for s in seasons if s.get("completed", False))
+
+        designer_stats = ProgressTracker._calculate_designer_stats(seasons)
+        look_stats = ProgressTracker._calculate_look_stats(seasons)
+
+        return {
+            "total_seasons": total_seasons,
+            "completed_seasons": completed_seasons,
+            **designer_stats,
+            **look_stats,
+        }
+
+    @staticmethod
+    def _calculate_designer_stats(seasons: List[Dict[str, Any]]) -> Dict[str, int]:
+        """Calculate designer-related statistics."""
+        total_designers = 0
+        completed_designers = 0
+
+        for season in seasons:
+            designers = season.get("designers", [])
+            total_designers += len(designers)
+            completed_designers += sum(1 for d in designers if d.get("completed", False))
+
+        return {"total_designers": total_designers, "completed_designers": completed_designers}
+
+    @staticmethod
+    def _calculate_look_stats(seasons: List[Dict[str, Any]]) -> Dict[str, int]:
+        """Calculate look-related statistics."""
+        total_looks = 0
+        extracted_looks = 0
+
+        for season in seasons:
+            for designer in season.get("designers", []):
+                total_looks += designer.get("total_looks", 0)
+                extracted_looks += designer.get("extracted_looks", 0)
+
+        return {"total_looks": total_looks, "extracted_looks": extracted_looks}
+
+    @staticmethod
+    def get_completion_percentages(data: Dict[str, Any]) -> Dict[str, float]:
+        """Calculate completion percentages for different metrics."""
+        progress = data["metadata"]["overall_progress"]
+
+        return {
+            "season_completion": ProgressTracker._calculate_percentage(
+                progress["completed_seasons"], progress["total_seasons"]
+            ),
+            "designer_completion": ProgressTracker._calculate_percentage(
+                progress["completed_designers"], progress["total_designers"]
+            ),
+            "look_completion": ProgressTracker._calculate_percentage(
+                progress["extracted_looks"], progress["total_looks"]
+            ),
+        }
+
+    @staticmethod
+    def _calculate_percentage(completed: int, total: int) -> float:
+        """Calculate completion percentage."""
+        if total == 0:
+            return 0.0
+        return round((completed / total) * 100, 2)
+
+    def get_progress_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Get a comprehensive progress summary."""
+        percentages = self.get_completion_percentages(data)
+        progress = data["metadata"]["overall_progress"]
+
+        return {
+            "last_updated": data["metadata"]["last_updated"],
+            "overall_completion": sum(percentages.values()) / len(percentages),
+            "progress_stats": {
+                "seasons": f"{progress['completed_seasons']}/{progress['total_seasons']}",
+                "designers": f"{progress['completed_designers']}/{progress['total_designers']}",
+                "looks": f"{progress['extracted_looks']}/{progress['total_looks']}",
+            },
+            "completion_percentages": percentages,
+        }
+
+    def _initialize_season(self, season: Dict[str, str]) -> None:
+        """Initialize a new season in storage."""
+        self.storage.update_data(
+            season_data={
+                "season": season["season"],
+                "year": season["year"],
+                "url": season["url"],
+                "designers": [],
+                "total_designers": 0,
+                "completed_designers": 0,
+            }
+        )
+
+    def _initialize_slideshow_scraper(self, driver: Any) -> Any:
+        """Initialize the slideshow scraper."""
+        # Note: VogueSlideshowScraper import would be at the top of the file
+        return VogueSlideshowScraper(driver, self.logger, self.storage)
+
+    def _create_designer_data(
+        self, designer: Dict[str, str], season_index: int, designer_index: int
+    ) -> Dict[str, Any]:
+        """Create designer data structure for storage."""
+        return {
+            "season_index": season_index,
+            "designer_index": designer_index,
+            "data": {
+                "name": designer["name"],
+                "url": designer["url"],
+                "looks": [],
+            },
+            "total_looks": 0,
+            "extracted_looks": 0,
+        }
+
+    def _finalize_designer_processing(self, active_session: bool, designer_name: str) -> None:
+        """Finalize designer processing and cleanup."""
+        if active_session:
+            self.storage._end_designer_session()
+        self.update_overall_progress(self.storage.get_data())
+        self.storage.save_progress()
+        self.logger.info(f"Completed processing designer: {designer_name}")
+
+    def _get_season_index(self, season: Dict[str, str]) -> Optional[int]:
+        """Get the index of a season in storage."""
+        # Implementation would depend on storage interface
+        pass
+
+
+
+=== ./src/utils/storage/models.py ===
+
+# utils/storage/models.py
+"""Data models and type definitions for runway data storage."""
+
+from typing import TypedDict, List, Optional
+from datetime import datetime
+
+
+class ImageData(TypedDict):
+    """Type definition for image data."""
+
+    url: str
+    alt_text: str
+    type: str
+    timestamp: str
+
+
+class LookData(TypedDict):
+    """Type definition for look data."""
+
+    look_number: int
+    completed: bool
+    images: List[ImageData]
+
+
+class DesignerData(TypedDict):
+    """Type definition for designer data."""
+
+    name: str
+    url: str
+    total_looks: int
+    extracted_looks: int
+    completed: bool
+    looks: List[LookData]
+
+
+class SeasonData(TypedDict):
+    """Type definition for season data."""
+
+    season: str
+    year: str
+    completed: bool
+    total_designers: int
+    completed_designers: int
+    designers: List[DesignerData]
+
+
+
+=== ./src/utils/storage/data_validator.py ===
+
+# utils/storage/data_validator.py
+"""Data validation and debugging module for storage operations."""
+
+from typing import Dict, Any, Optional, List
+import logging
+from datetime import datetime
+
+
+class DataValidator:
+    """Validates data consistency and tracks storage operations."""
+
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.operation_log = []
+
+    def validate_designer_context(
+        self, data: Dict[str, Any], season_index: int, designer_index: int, designer_url: str
+    ) -> bool:
+        """Validate that indices point to correct designer."""
+        try:
+            # Check if seasons array exists and has enough elements
+            if not data.get("seasons") or season_index >= len(data["seasons"]):
+                self.logger.error(f"Invalid season index: {season_index}")
+                return False
+
+            season = data["seasons"][season_index]
+
+            # Initialize designers array if it doesn't exist
+            if "designers" not in season:
+                season["designers"] = []
+
+            # If this is a new designer being added
+            if designer_index >= len(season["designers"]):
+                # Allow new designer to be added at next index
+                if designer_index == len(season["designers"]):
+                    self._log_operation(
+                        "validate_context",
+                        {
+                            "season_index": season_index,
+                            "designer_index": designer_index,
+                            "designer_url": designer_url,
+                            "timestamp": datetime.now().isoformat(),
+                            "note": "New designer initialization",
+                        },
+                    )
+                    return True
+                else:
+                    self.logger.error(f"Designer index {designer_index} out of range")
+                    return False
+
+            # For existing designer, verify URL match
+            designer = season["designers"][designer_index]
+            if designer["url"] != designer_url:
+                self.logger.error(
+                    f"Designer mismatch: Expected {designer_url}, "
+                    f"found {designer['url']} at indices [{season_index}, {designer_index}]"
+                )
+                return False
+
+            self._log_operation(
+                "validate_context",
+                {
+                    "season_index": season_index,
+                    "designer_index": designer_index,
+                    "designer_url": designer_url,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Validation error: {str(e)}")
+            return False
+
+    def validate_look_assignment(
+        self,
+        data: Dict[str, Any],
+        season_index: int,
+        designer_index: int,
+        look_number: int,
+        images: List[Dict[str, str]],
+    ) -> bool:
+        """Validate look data before assignment."""
+        try:
+            # Validate season and designer indices
+            if not data.get("seasons") or season_index >= len(data["seasons"]):
+                self.logger.error(f"Invalid season index: {season_index}")
+                return False
+
+            season = data["seasons"][season_index]
+            if not season.get("designers") or designer_index >= len(season["designers"]):
+                self.logger.error(f"Invalid designer index: {designer_index}")
+                return False
+
+            designer = season["designers"][designer_index]
+
+            # Initialize looks array if needed
+            if "looks" not in designer:
+                designer["looks"] = []
+
+            # Check if look already exists
+            existing_look = None
+            for look in designer["looks"]:
+                if look["look_number"] == look_number:
+                    existing_look = look
+                    break
+
+            if existing_look and existing_look.get("completed", False):
+                self.logger.warning(
+                    f"Attempting to modify completed look {look_number} "
+                    f"for designer {designer['name']}"
+                )
+                return False
+
+            self._log_operation(
+                "validate_look",
+                {
+                    "season_index": season_index,
+                    "designer_index": designer_index,
+                    "look_number": look_number,
+                    "image_count": len(images),
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Look validation error: {str(e)}")
+            return False
+
+    def get_designer_by_url(
+        self, data: Dict[str, Any], designer_url: str
+    ) -> Optional[tuple[int, int]]:
+        """Find correct indices for a designer URL."""
+        for season_idx, season in enumerate(data["seasons"]):
+            for designer_idx, designer in enumerate(season["designers"]):
+                if designer["url"] == designer_url:
+                    return (season_idx, designer_idx)
+        return None
+
+    def _log_operation(self, operation: str, details: Dict[str, Any]) -> None:
+        """Log storage operation details."""
+        self.operation_log.append({"operation": operation, "details": details})
+
+    def get_operation_log(self) -> List[Dict[str, Any]]:
+        """Get log of all storage operations."""
+        return self.operation_log
+
+    def analyze_storage_operations(self) -> Dict[str, Any]:
+        """Analyze storage operations for patterns and issues."""
+        analysis = {
+            "total_operations": len(self.operation_log),
+            "operations_by_type": {},
+            "potential_issues": [],
+        }
+
+        last_designer_url = None
+        for op in self.operation_log:
+            # Track operation types
+            op_type = op["operation"]
+            analysis["operations_by_type"][op_type] = (
+                analysis["operations_by_type"].get(op_type, 0) + 1
+            )
+
+            # Check for rapid designer switches
+            if op_type == "validate_context":
+                current_url = op["details"]["designer_url"]
+                if last_designer_url and current_url != last_designer_url:
+                    analysis["potential_issues"].append(
+                        {
+                            "type": "designer_switch",
+                            "from_url": last_designer_url,
+                            "to_url": current_url,
+                            "timestamp": op["details"]["timestamp"],
+                        }
+                    )
+                last_designer_url = current_url
+
+        return analysis
+
+    def validate_season_data(self, season_data: Dict[str, Any]) -> bool:
+        """Validate season data structure and content.
+
+        Args:
+            season_data: Season data to validate
+
+        Returns:
+            bool: True if season data is valid
+        """
+        try:
+            # Check required fields
+            required_fields = ["season", "year", "url"]
+            if not all(field in season_data for field in required_fields):
+                self.logger.error(
+                    f"Missing required fields in season data. Required: {required_fields}"
+                )
+                return False
+
+            # Validate field types
+            if not isinstance(season_data["season"], str):
+                self.logger.error("Season name must be a string")
+                return False
+
+            if not isinstance(season_data["year"], str):
+                self.logger.error("Year must be a string")
+                return False
+
+            if not isinstance(season_data["url"], str):
+                self.logger.error("URL must be a string")
+                return False
+
+            # Validate field content
+            if not season_data["season"].strip():
+                self.logger.error("Season name cannot be empty")
+                return False
+
+            if not season_data["year"].strip():
+                self.logger.error("Year cannot be empty")
+                return False
+
+            if not season_data["url"].startswith("http"):
+                self.logger.error("Invalid URL format")
+                return False
+
+            self._log_operation(
+                "validate_season",
+                {
+                    "season": season_data["season"],
+                    "year": season_data["year"],
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Season data validation error: {str(e)}")
+            return False
+
+    def validate_data_structure(self, data: Dict[str, Any]) -> bool:
+        """Validate the overall data structure.
+
+        Args:
+            data: Complete data structure to validate
+
+        Returns:
+            bool: True if data structure is valid
+        """
+        try:
+            # Check required top-level keys
+            required_keys = ["metadata", "seasons"]
+            if not all(key in data for key in required_keys):
+                self.logger.error(f"Missing required top-level keys: {required_keys}")
+                return False
+
+            # Validate metadata structure
+            metadata_keys = ["created_at", "last_updated", "overall_progress"]
+            if not all(key in data["metadata"] for key in metadata_keys):
+                self.logger.error(f"Invalid metadata structure")
+                return False
+
+            # Validate overall_progress structure
+            progress_keys = [
+                "total_seasons",
+                "completed_seasons",
+                "total_designers",
+                "completed_designers",
+                "total_looks",
+                "extracted_looks",
+            ]
+            if not all(key in data["metadata"]["overall_progress"] for key in progress_keys):
+                self.logger.error(f"Invalid progress tracking structure")
+                return False
+
+            # Validate seasons array
+            if not isinstance(data["seasons"], list):
+                self.logger.error("Seasons must be an array")
+                return False
+
+            # Validate individual seasons
+            for season in data["seasons"]:
+                if not self.validate_season_data(season):
+                    return False
+
+            self._log_operation(
+                "validate_structure",
+                {"timestamp": datetime.now().isoformat(), "season_count": len(data["seasons"])},
+            )
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Data structure validation error: {str(e)}")
+            return False
+
+
+
+=== ./src/utils/storage/data_updater.py ===
+
+# utils/storage/data_updater.py
+"""Data updater for handling all storage update operations.
+
+This module extends the base storage handler to provide functionality for
+updating season data, designer data, and look data in real-time.
+"""
+
+from datetime import datetime
+from typing import Dict, Any, List
+
+from src.utils.storage.base_handler import BaseStorageHandler
+from src.utils.storage.utils import determine_image_type
+from src.exceptions.errors import StorageError, ValidationError
+
+
+class DataUpdater(BaseStorageHandler):
+    """Handles data updates for seasons, designers, and looks."""
+
+    def update_season_data(self, season_data: Dict[str, Any]) -> bool:
+        """Update file with new season data in real-time.
+
+        Args:
+            season_data: Season data to update including season and year
+
+        Returns:
+            True if update successful
+
+        Raises:
+            StorageError: If update fails
+        """
+        try:
+            if not self.current_file:
+                self.initialize_file()
+
+            current_data = self.read_data()
+
+            # Check if season already exists
+            season_exists = False
+            for i, existing_season in enumerate(current_data["seasons"]):
+                if (
+                    existing_season["season"] == season_data["season"]
+                    and existing_season["year"] == season_data["year"]
+                ):
+                    # Preserve existing fields
+                    preserved_fields = {
+                        "designers": existing_season.get("designers", []),
+                        "completed": existing_season.get("completed", False),
+                        "total_designers": existing_season.get("total_designers", 0),
+                        "completed_designers": existing_season.get("completed_designers", 0),
+                    }
+
+                    # Update with new data while preserving fields
+                    current_data["seasons"][i].update(season_data)
+                    current_data["seasons"][i].update(preserved_fields)
+
+                    season_exists = True
+                    break
+
+            if not season_exists:
+                # Add new season with required fields
+                season_data.update(
+                    {
+                        "completed": False,
+                        "total_designers": 0,
+                        "completed_designers": 0,
+                        "designers": [],
+                    }
+                )
+                current_data["seasons"].append(season_data)
+
+            current_data["metadata"]["last_updated"] = datetime.now().isoformat()
+
+            self.write_data(current_data)
+            self.logger.info(
+                f"Updated season: {season_data.get('season')} {season_data.get('year')}"
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error updating season data: {str(e)}")
+            return False
+
+    def update_designer_data(
+        self, season_index: int, designer_data: Dict[str, Any], total_looks: int
+    ) -> bool:
+        """Update file with new designer data in real-time.
+
+        Args:
+            season_index: Index of the season in the data structure
+            designer_data: Designer data to update
+            total_looks: Total number of looks in the collection
+
+        Returns:
+            True if update successful
+
+        Raises:
+            StorageError: If update fails
+            ValidationError: If indices are invalid
+        """
+        try:
+            if not self.current_file:
+                self.initialize_file()
+
+            current_data = self.read_data()
+
+            if season_index >= len(current_data["seasons"]):
+                raise ValidationError(f"Season index {season_index} out of range")
+
+            season = current_data["seasons"][season_index]
+
+            # Check if designer already exists
+            designer_exists = False
+            for i, existing_designer in enumerate(season["designers"]):
+                if existing_designer["url"] == designer_data["url"]:
+                    # Preserve existing fields
+                    preserved_fields = {
+                        "looks": existing_designer.get("looks", []),
+                        "completed": existing_designer.get("completed", False),
+                        "extracted_looks": existing_designer.get("extracted_looks", 0),
+                    }
+
+                    # Update with new data and totals
+                    designer_data.update({"total_looks": total_looks, **preserved_fields})
+
+                    season["designers"][i] = designer_data
+                    designer_exists = True
+                    break
+
+            if not designer_exists:
+                # Add new designer with required fields
+                designer_data.update(
+                    {
+                        "total_looks": total_looks,
+                        "extracted_looks": 0,
+                        "completed": False,
+                        "looks": [],
+                    }
+                )
+                season["designers"].append(designer_data)
+
+            # Update progress counters
+            season["total_designers"] = len(season["designers"])
+            season["completed_designers"] = sum(1 for d in season["designers"] if d["completed"])
+            season["completed"] = season["completed_designers"] >= season["total_designers"]
+
+            current_data["metadata"]["last_updated"] = datetime.now().isoformat()
+
+            self.write_data(current_data)
+            self.logger.info(f"Updated designer: {designer_data.get('name')}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error updating designer data: {str(e)}")
+            return False
+
+    def update_look_data(
+        self, season_index: int, designer_index: int, look_number: int, images: List[Dict[str, str]]
+    ) -> bool:
+        """Update file with new look data in real-time.
+
+        Args:
+            season_index: Index of the season in the data structure
+            designer_index: Index of the designer in the season
+            look_number: Number of the look being updated
+            images: List of image data for the look
+
+        Returns:
+            True if update successful
+
+        Raises:
+            StorageError: If update fails
+            ValidationError: If indices are invalid
+        """
+        try:
+            if not self.current_file:
+                self.initialize_file()
+
+            current_data = self.read_data()
+
+            if season_index >= len(current_data["seasons"]):
+                raise ValidationError(f"Season index {season_index} out of range")
+
+            season = current_data["seasons"][season_index]
+            if designer_index >= len(season["designers"]):
+                raise ValidationError(f"Designer index {designer_index} out of range")
+
+            designer = season["designers"][designer_index]
+
+            if "looks" not in designer:
+                designer["looks"] = []
+
+            # Find or create look entry
+            look_entry = self._get_or_create_look(designer, look_number)
+
+            # Update images with timestamps and types
+            timestamp = datetime.now().isoformat()
+            self._process_images(images, timestamp)
+
+            # Update look data
+            look_entry["images"].extend(images)
+            look_entry["completed"] = True
+
+            # Sort and update progress
+            self._sort_looks(designer)
+            self._update_completion_status(designer, season)
+
+            current_data["metadata"]["last_updated"] = timestamp
+
+            self.write_data(current_data)
+            self.logger.info(f"Updated look {look_number} with {len(images)} new images")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error updating look data: {str(e)}")
+            return False
+
+    def _get_or_create_look(self, designer: Dict[str, Any], look_number: int) -> Dict[str, Any]:
+        """Get existing look entry or create new one.
+
+        Args:
+            designer: Designer data dictionary
+            look_number: Number of the look
+
+        Returns:
+            Look entry dictionary
+        """
+        for look in designer["looks"]:
+            if look["look_number"] == look_number:
+                return look
+
+        look_entry = {"look_number": look_number, "completed": False, "images": []}
+        designer["looks"].append(look_entry)
+        return look_entry
+
+    def _process_images(self, images: List[Dict[str, str]], timestamp: str) -> None:
+        """Process images adding timestamps and determining types.
+
+        Args:
+            images: List of image dictionaries
+            timestamp: Timestamp to add to images
+        """
+        for image in images:
+            if "type" not in image:
+                image["type"] = determine_image_type(image.get("alt_text", ""))
+            image["timestamp"] = timestamp
+
+    def _sort_looks(self, designer: Dict[str, Any]) -> None:
+        """Sort looks by look number.
+
+        Args:
+            designer: Designer data dictionary
+        """
+        designer["looks"].sort(key=lambda x: x["look_number"])
+
+    def _update_completion_status(self, designer: Dict[str, Any], season: Dict[str, Any]) -> None:
+        """Update completion status for designer and season.
+
+        Args:
+            designer: Designer data dictionary
+            season: Season data dictionary
+        """
+        designer["extracted_looks"] = sum(1 for look in designer["looks"] if look["completed"])
+        designer["completed"] = designer["extracted_looks"] >= designer["total_looks"]
+
+        season["completed_designers"] = sum(1 for d in season["designers"] if d["completed"])
+        season["completed"] = season["completed_designers"] >= season["total_designers"]
+
+
+
+=== ./src/utils/storage/session.py ===
+
+# utils/storage/session.py
+from typing import Dict, Any, Optional
+from datetime import datetime
+import json
+import hashlib
+from ...exceptions.errors import StorageError
+
+
+class SessionManager:
+    """Manages sessions and checkpoints for data storage operations."""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self._active_session = None
+        self._transaction_log = []
+        self._checkpoints = {}
+
+    def start_designer_session(self, designer_url: str) -> None:
+        """Start a new designer processing session."""
+        if self._active_session:
+            raise StorageError("Another designer session is already active")
+
+        self._active_session = {
+            "designer_url": designer_url,
+            "start_time": datetime.now().isoformat(),
+            "operations": [],
+            "state_hash": self._calculate_state_hash(),
+        }
+        self.logger.info(f"Started session for designer: {designer_url}")
+
+    def end_designer_session(self) -> None:
+        """End current designer processing session safely."""
+        if self._active_session:
+            end_time = datetime.now().isoformat()
+            self._transaction_log.append(
+                {
+                    "type": "session",
+                    "designer_url": self._active_session["designer_url"],
+                    "start_time": self._active_session["start_time"],
+                    "end_time": end_time,
+                    "operations_count": len(self._active_session["operations"]),
+                    "final_state_hash": self._calculate_state_hash(),
+                }
+            )
+            self._active_session = None
+            self.logger.info("Designer session ended successfully")
+
+    def create_restore_point(self, current_data: Dict[str, Any]) -> None:
+        """Create a restore point for the current state."""
+        try:
+            checkpoint_hash = self._calculate_state_hash(current_data)
+            self._checkpoints[checkpoint_hash] = json.dumps(current_data)
+
+            if len(self._checkpoints) > 5:
+                oldest_hash = list(self._checkpoints.keys())[0]
+                del self._checkpoints[oldest_hash]
+
+        except Exception as e:
+            self.logger.error(f"Error creating restore point: {str(e)}")
+
+    def restore_from_last_point(self) -> Optional[Dict[str, Any]]:
+        """Restore data from the last restore point."""
+        try:
+            if not self._checkpoints:
+                return None
+
+            latest_hash = list(self._checkpoints.keys())[-1]
+            return json.loads(self._checkpoints[latest_hash])
+
+        except Exception as e:
+            self.logger.error(f"Error restoring from checkpoint: {str(e)}")
+            return None
+
+    def _calculate_state_hash(self, data: Dict[str, Any] = None) -> str:
+        """Calculate hash of current state for integrity checking."""
+        try:
+            data_str = json.dumps(data, sort_keys=True)
+            return hashlib.md5(data_str.encode()).hexdigest()
+        except Exception as e:
+            self.logger.error(f"Error calculating state hash: {str(e)}")
+            return ""
+
+
+
+=== ./src/utils/storage/__init__.py ===
+
+from .handler import DataStorageHandler
+
+
+
+=== ./src/utils/storage/updater.py ===
+
+# utils/storage/updater.py
+from typing import Dict, Any
+from datetime import datetime
+import json
+from pathlib import Path
+from .errors import StorageError
+
+
+class DataUpdater:
+    """Handles data update operations with safety checks."""
+
+    def __init__(self, base_dir: str = None, checkpoint_file: str = None):
+        self.logger = None  # Initialize logger
+        self.current_file = None
+        self._setup_storage(base_dir, checkpoint_file)
+
+    def _setup_storage(self, base_dir: str, checkpoint_file: str) -> None:
+        """Set up storage with base directory and checkpoint file."""
+        try:
+            self.base_dir = Path(base_dir) if base_dir else Path("data")
+            self.base_dir.mkdir(exist_ok=True)
+
+            if checkpoint_file:
+                self.current_file = Path(checkpoint_file)
+            else:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                self.current_file = self.base_dir / f"data_{timestamp}.json"
+
+        except Exception as e:
+            raise StorageError(f"Storage setup failed: {str(e)}")
+
+    def read_data(self) -> Dict[str, Any]:
+        """Read data from storage file."""
+        try:
+            with open(self.current_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            raise StorageError(f"Failed to read data: {str(e)}")
+
+    def write_data(self, data: Dict[str, Any]) -> None:
+        """Write data to storage file."""
+        try:
+            with open(self.current_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            raise StorageError(f"Failed to write data: {str(e)}")
+
+
+
+=== ./src/utils/storage/utils.py ===
+
+# utils/storage/utils.py
+"""Utility functions for data storage operations.
+
+This module provides utility functions for common storage operations,
+including file generation, data type determination, and file operations.
+"""
+
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, Optional, Union
+
+from src.exceptions.errors import FileOperationError
+from src.config.settings import STORAGE, config
+
+
+def generate_filename(base_dir: Union[str, Path], prefix: Optional[str] = None) -> Path:
+    """Generate a filename with timestamp for data storage.
+
+    Args:
+        base_dir: Base directory for storing files
+        prefix: Optional prefix for the filename (defaults to config setting)
+
+    Returns:
+        Path: Generated file path with timestamp
+
+    Example:
+        >>> generate_filename('data')
+        Path('data/vogue_runway_20240121_123456.json')
+    """
+    timestamp = datetime.now().strftime(STORAGE["timestamp_format"])
+    file_prefix = prefix or STORAGE["file_prefix"]
+    return Path(base_dir) / f"{file_prefix}_{timestamp}.json"
+
+
+def determine_image_type(alt_text: str) -> str:
+    """Determine the type of image based on its alt text.
+
+    Args:
+        alt_text: Alt text from the image
+
+    Returns:
+        str: Image type ('back', 'detail', or 'front')
+
+    Example:
+        >>> determine_image_type("Back view of Look 1")
+        'back'
+    """
+    alt_lower = alt_text.lower()
+    if "back" in alt_lower:
+        return "back"
+    elif "detail" in alt_lower:
+        return "detail"
+    else:
+        return "front"
+
+
+def read_json_file(file_path: Union[str, Path]) -> Dict[str, Any]:
+    """Read and parse a JSON file.
+
+    Args:
+        file_path: Path to the JSON file
+
+    Returns:
+        Dict[str, Any]: Parsed JSON data
+
+    Raises:
+        FileOperationError: If file cannot be read or parsed
+
+    Example:
+        >>> data = read_json_file('data/storage.json')
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        raise FileOperationError(f"Error reading JSON file {file_path}: {str(e)}")
+
+
+def write_json_file(file_path: Union[str, Path], data: Dict[str, Any]) -> None:
+    """Write data to a JSON file with proper formatting.
+
+    Args:
+        file_path: Path where to write the JSON file
+        data: Data to write to the file
+
+    Raises:
+        FileOperationError: If file cannot be written
+
+    Example:
+        >>> write_json_file('data/storage.json', {'key': 'value'})
+    """
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        raise FileOperationError(f"Error writing JSON file {file_path}: {str(e)}")
+
+
+def ensure_directory_exists(directory: Union[str, Path]) -> None:
+    """Create a directory if it doesn't exist.
+
+    Args:
+        directory: Directory path to create
+
+    Raises:
+        FileOperationError: If directory cannot be created
+
+    Example:
+        >>> ensure_directory_exists('data/images')
+    """
+    try:
+        Path(directory).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        raise FileOperationError(f"Error creating directory {directory}: {str(e)}")
+
+
+def validate_file_path(
+    file_path: Union[str, Path], base_dir: Optional[Union[str, Path]] = None
+) -> Path:
+    """Validate and normalize a file path.
+
+    Args:
+        file_path: File path to validate
+        base_dir: Optional base directory for relative paths
+
+    Returns:
+        Path: Normalized absolute path
+
+    Raises:
+        FileOperationError: If path is invalid or inaccessible
+
+    Example:
+        >>> path = validate_file_path('storage.json', 'data')
+    """
+    try:
+        path = Path(file_path)
+        if not path.is_absolute() and base_dir:
+            path = Path(base_dir) / path
+        return path.resolve()
+    except Exception as e:
+        raise FileOperationError(f"Invalid file path {file_path}: {str(e)}")
+
+
+def get_file_info(file_path: Union[str, Path]) -> Dict[str, Any]:
+    """Get information about a file.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        Dict[str, Any]: File information including size, modification time, etc.
+
+    Raises:
+        FileOperationError: If file information cannot be retrieved
+
+    Example:
+        >>> info = get_file_info('data/storage.json')
+        >>> print(info['size_mb'])
+    """
+    try:
+        path = Path(file_path)
+        stats = path.stat()
+        return {
+            "size_bytes": stats.st_size,
+            "size_mb": round(stats.st_size / (1024 * 1024), 2),
+            "modified": datetime.fromtimestamp(stats.st_mtime).isoformat(),
+            "created": datetime.fromtimestamp(stats.st_ctime).isoformat(),
+            "is_file": path.is_file(),
+            "extension": path.suffix,
+            "name": path.name,
+        }
+    except Exception as e:
+        raise FileOperationError(f"Error getting file info for {file_path}: {str(e)}")
+
+
+def cleanup_old_files(
+    directory: Union[str, Path], pattern: str = "*.json", max_files: int = 5
+) -> None:
+    """Clean up old files in a directory, keeping only the most recent ones.
+
+    Args:
+        directory: Directory to clean
+        pattern: File pattern to match
+        max_files: Maximum number of files to keep
+
+    Raises:
+        FileOperationError: If cleanup operation fails
+
+    Example:
+        >>> cleanup_old_files('data', '*.json', 3)
+    """
+    try:
+        path = Path(directory)
+        files = sorted(path.glob(pattern), key=lambda x: x.stat().st_mtime, reverse=True)
+
+        for file in files[max_files:]:
+            try:
+                file.unlink()
+            except Exception as e:
+                raise FileOperationError(f"Error deleting file {file}: {str(e)}")
+    except Exception as e:
+        raise FileOperationError(f"Error during cleanup of {directory}: {str(e)}")
+
+
+def merge_json_files(files: list[Union[str, Path]], output_file: Union[str, Path]) -> None:
+    """Merge multiple JSON files into one.
+
+    Args:
+        files: List of files to merge
+        output_file: Path for the merged output file
+
+    Raises:
+        FileOperationError: If merge operation fails
+
+    Example:
+        >>> merge_json_files(['data1.json', 'data2.json'], 'merged.json')
+    """
+    try:
+        merged_data = {
+            "metadata": {
+                "merged_at": datetime.now().isoformat(),
+                "source_files": [str(f) for f in files],
+            },
+            "seasons": [],
+        }
+
+        for file in files:
+            data = read_json_file(file)
+            if "seasons" in data:
+                merged_data["seasons"].extend(data["seasons"])
+
+        write_json_file(output_file, merged_data)
+    except Exception as e:
+        raise FileOperationError(f"Error merging JSON files: {str(e)}")
+
+
+
+=== ./src/utils/storage/base_handler.py ===
+
+# utils/storage/base_handler.py
+"""Base storage handler for managing file operations.
+
+This module provides the foundation for storage operations, handling file
+initialization, basic JSON operations, and directory management.
+"""
+
+import json
+import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, Optional
+
+from src.utils.storage.utils import (
+    generate_filename,
+    read_json_file,
+    write_json_file,
+    ensure_directory_exists,
+)
+from src.exceptions.errors import StorageError, FileOperationError
+from src.config.settings import config
+
+
+class BaseStorageHandler:
+    """Base handler for storage operations providing core file management functionality."""
+
+    def __init__(self, base_dir: str = config.storage.BASE_DIR, checkpoint_file: str = None):
+        """Initialize the base storage handler.
+
+        Args:
+            base_dir: Base directory for storing data files
+            checkpoint_file: Optional path to existing checkpoint file
+
+        Raises:
+            StorageError: If initialization fails
+        """
+        try:
+            self.base_dir = Path(base_dir or "data")
+            ensure_directory_exists(self.base_dir)
+            self.current_file = Path(checkpoint_file) if checkpoint_file else None
+            self.logger = logging.getLogger(__name__)
+
+            if self.current_file:
+                if not self.current_file.is_absolute():
+                    self.current_file = self.base_dir / self.current_file
+                if not self.current_file.exists():
+                    self.logger.warning(f"Checkpoint file {self.current_file} not found")
+
+        except Exception as e:
+            raise StorageError(f"Error initializing storage handler: {str(e)}")
+
+    def read_data(self) -> Dict[str, Any]:
+        """Read the current data file.
+
+        Returns:
+            Dictionary containing the file data
+
+        Raises:
+            FileOperationError: If file cannot be read
+            StorageError: If no file is initialized
+        """
+        if not self.current_file:
+            raise StorageError("No file initialized. Call initialize_file() first.")
+        return read_json_file(self.current_file)
+
+    def write_data(self, data: Dict[str, Any]) -> None:
+        """Write data to the current file.
+
+        Args:
+            data: Data to write to file
+
+        Raises:
+            FileOperationError: If file cannot be written
+            StorageError: If no file is initialized
+        """
+        if not self.current_file:
+            raise StorageError("No file initialized. Call initialize_file() first.")
+        write_json_file(self.current_file, data)
+
+    def _get_default_structure(self) -> Dict[str, Any]:
+        """Get the default data structure for new files.
+
+        Returns:
+            Dictionary containing the default data structure
+        """
+        return {
+            "metadata": {
+                "created_at": datetime.now().isoformat(),
+                "last_updated": datetime.now().isoformat(),
+                "overall_progress": {
+                    "total_seasons": 0,
+                    "completed_seasons": 0,
+                    "total_designers": 0,
+                    "completed_designers": 0,
+                    "total_looks": 0,
+                    "extracted_looks": 0,
+                },
+            },
+            "seasons": [],
+        }
+
+    def get_current_file(self) -> Optional[Path]:
+        """Get the path to the current data file.
+
+        Returns:
+            Path to current file or None if no file initialized
+        """
+        return self.current_file
+
+    def validate_file(self) -> bool:
+        """Validate that the current file exists and is readable.
+
+        Returns:
+            True if file exists and is readable
+
+        Raises:
+            FileOperationError: If file validation fails
+        """
+        if not self.current_file:
+            return False
+
+        try:
+            read_json_file(self.current_file)
+            return True
+        except FileOperationError:
+            return False
+
+    def exists(self) -> bool:
+        """Check if the current file exists.
+
+        Returns:
+            True if file exists
+        """
+        return self.current_file is not None and self.current_file.exists()
+
+
+
+=== ./src/utils/storage/errors.py ===
+
+# utils/storage/errors.py
+class StorageError(Exception):
+    """Base exception for storage-related errors."""
+
+    pass
+
+
+class ValidationError(Exception):
+    """Exception for data validation errors."""
+
+    pass
+
+
+
+=== ./src/utils/storage/storage_handler.py ===
+
+# utils/storage/storage_handler.py
+"""Enhanced storage handler with validation, session management, and safety checks.
+
+This module provides a robust implementation of the storage handler with:
+- Strong data validation
+- Session-based processing
+- Atomic updates
+- Error recovery
+- Comprehensive logging
+"""
+
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+import hashlib
+import json
+from pathlib import Path
+
+from .data_updater import DataUpdater
+from .data_validator import DataValidator
+from ...exceptions.errors import StorageError, ValidationError
+
+
+class DataStorageHandler(DataUpdater):
+    """Enhanced storage handler with validation and safety checks."""
+
+    def __init__(self, base_dir: str = None, checkpoint_file: str = None):
+        """Initialize the storage handler with validation capabilities.
+
+        Args:
+            base_dir: Base directory for storing data files
+            checkpoint_file: Optional path to checkpoint file to resume from
+        """
+        super().__init__(base_dir, checkpoint_file)
+        self.validator = DataValidator(self.logger)
+        self._active_session = None
+        self._transaction_log = []
+        self._checkpoints = {}
+
+        # Set up base directory
+        self.base_dir = Path(base_dir) if base_dir else Path("data")
+        self.base_dir.mkdir(exist_ok=True)
+
+        # Initialize or load checkpoint
+        if checkpoint_file:
+            self.current_file = Path(checkpoint_file)
+        else:
+            # Generate new filename with timestamp if no checkpoint
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.current_file = self.base_dir / f"vogue_data_{timestamp}.json"
+
+    def initialize_file(self) -> Path:
+        """Initialize storage file with proper structure.
+
+        Returns:
+            Path: Path to initialized file
+        """
+        try:
+            if self.current_file.exists():
+                self.logger.info(f"Using existing file: {self.current_file}")
+                return self.current_file
+
+            # Create new file with initial structure
+            initial_data = {
+                "metadata": {
+                    "created_at": datetime.now().isoformat(),
+                    "last_updated": datetime.now().isoformat(),
+                    "overall_progress": {
+                        "total_seasons": 0,
+                        "completed_seasons": 0,
+                        "total_designers": 0,
+                        "completed_designers": 0,
+                        "total_looks": 0,
+                        "extracted_looks": 0,
+                    },
+                },
+                "seasons": [],
+            }
+
+            # Ensure directory exists
+            self.current_file.parent.mkdir(exist_ok=True)
+
+            # Write initial data
+            with open(self.current_file, "w", encoding="utf-8") as f:
+                json.dump(initial_data, f, indent=2)
+
+            self.logger.info(f"Initialized new file: {self.current_file}")
+            return self.current_file
+
+        except Exception as e:
+            self.logger.error(f"Error initializing file: {str(e)}")
+            raise StorageError(f"File initialization failed: {str(e)}")
+
+    def _start_designer_session(self, designer_url: str) -> None:
+        """Start a new designer processing session.
+
+        Args:
+            designer_url: URL identifier of the designer
+
+        Raises:
+            StorageError: If another session is already active
+        """
+        if self._active_session:
+            raise StorageError("Another designer session is already active")
+
+        self._active_session = {
+            "designer_url": designer_url,
+            "start_time": datetime.now().isoformat(),
+            "operations": [],
+            "state_hash": self._calculate_state_hash(),
+        }
+
+        self.logger.info(f"Started session for designer: {designer_url}")
+
+    def _end_designer_session(self) -> None:
+        """End current designer processing session safely."""
+        if self._active_session:
+            end_time = datetime.now().isoformat()
+
+            # Log session completion
+            self._transaction_log.append(
+                {
+                    "type": "session",
+                    "designer_url": self._active_session["designer_url"],
+                    "start_time": self._active_session["start_time"],
+                    "end_time": end_time,
+                    "operations_count": len(self._active_session["operations"]),
+                    "final_state_hash": self._calculate_state_hash(),
+                }
+            )
+
+            self._active_session = None
+            self.save_progress()
+            self.logger.info("Designer session ended successfully")
+
+    def update_data(
+        self,
+        season_data: Optional[Dict[str, Any]] = None,
+        designer_data: Optional[Dict[str, Any]] = None,
+        look_data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Update storage with new data using enhanced validation.
+
+        Args:
+            season_data: Optional season data to update
+            designer_data: Optional designer data to update
+            look_data: Optional look data to update
+
+        Returns:
+            bool: True if update successful
+        """
+        try:
+            # Create restore point before update
+            self._create_restore_point()
+
+            if season_data:
+                success = self._update_season_with_validation(season_data)
+            elif designer_data:
+                success = self._update_designer_with_validation(designer_data)
+            elif look_data:
+                success = self._update_look_with_validation(look_data)
+            else:
+                raise ValidationError("No valid data provided for update")
+
+            if success:
+                self._log_successful_update()
+                return True
+            else:
+                self._restore_from_last_point()
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Error in update_data: {str(e)}")
+            self._restore_from_last_point()
+            raise StorageError(f"Update failed: {str(e)}")
+
+    def is_season_completed(self, season: Dict[str, str]) -> bool:
+        """Check if a season has been completely processed.
+
+        Args:
+            season: Season data containing season name and year
+
+        Returns:
+            bool: True if season is completed
+        """
+        try:
+            if not self.current_file:
+                return False
+
+            current_data = self.read_data()
+            season_name = season["season"]
+            season_year = season["year"]
+
+            # Find matching season in storage
+            for stored_season in current_data["seasons"]:
+                if stored_season["season"] == season_name and stored_season["year"] == season_year:
+
+                    # Must have designers and total_designers set
+                    if (
+                        not stored_season.get("designers")
+                        or stored_season.get("total_designers", 0) == 0
+                    ):
+                        return False
+
+                    total_designers = stored_season.get("total_designers", 0)
+                    completed_designers = sum(
+                        1
+                        for designer in stored_season["designers"]
+                        if self._is_designer_fully_completed(designer)
+                    )
+
+                    # All designers must be completed
+                    return completed_designers >= total_designers
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Error checking season completion: {str(e)}")
+            return False
+
+    def is_designer_completed(self, designer_url: str) -> bool:
+        """Check if a designer's show has been completely processed.
+
+        Args:
+            designer_url: URL identifier of the designer
+
+        Returns:
+            bool: True if designer is completed
+        """
+        try:
+            if not self.current_file:
+                return False
+
+            current_data = self.read_data()
+
+            # Search through all seasons and designers
+            for season in current_data["seasons"]:
+                for designer in season.get("designers", []):
+                    if designer["url"] == designer_url:
+                        return self._is_designer_fully_completed(designer)
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Error checking designer completion: {str(e)}")
+            return False
+
+    def _is_designer_fully_completed(self, designer: Dict[str, Any]) -> bool:
+        """Helper method to check if a designer is fully completed.
+
+        Args:
+            designer: Designer data dictionary
+
+        Returns:
+            bool: True if designer is fully completed
+        """
+        try:
+            # Must have looks and total_looks set
+            if not designer.get("looks") or designer.get("total_looks", 0) == 0:
+                return False
+
+            total_looks = designer.get("total_looks", 0)
+            completed_looks = sum(
+                1 for look in designer["looks"] if self._is_look_fully_completed(look)
+            )
+
+            # All looks must be completed and have images
+            is_completed = completed_looks >= total_looks
+
+            # Update designer completion status
+            designer["completed"] = is_completed
+            return is_completed
+
+        except Exception as e:
+            self.logger.error(f"Error checking designer completion status: {str(e)}")
+            return False
+
+    def _is_look_fully_completed(self, look: Dict[str, Any]) -> bool:
+        """Helper method to check if a look is fully completed.
+
+        Args:
+            look: Look data dictionary
+
+        Returns:
+            bool: True if look is fully completed
+        """
+        try:
+            return bool(look.get("images")) and all(
+                required_key in image
+                for image in look["images"]
+                for required_key in ["url", "look_number", "type", "timestamp"]
+            )
+        except Exception as e:
+            self.logger.error(f"Error checking look completion status: {str(e)}")
+            return False
+
+    def _update_completion_status(self, designer: Dict[str, Any], season: Dict[str, Any]) -> None:
+        """Update completion status for designer and season.
+
+        Args:
+            designer: Designer data dictionary
+            season: Season data dictionary
+        """
+        try:
+            # Update designer completion
+            designer_completed = self._is_designer_fully_completed(designer)
+            designer["completed"] = designer_completed
+
+            # Update season completion if all designers are completed
+            if designer_completed:
+                season_completed = all(
+                    self._is_designer_fully_completed(d) for d in season.get("designers", [])
+                )
+                season["completed"] = season_completed
+
+        except Exception as e:
+            self.logger.error(f"Error updating completion status: {str(e)}")
+
+    def _update_look_with_validation(self, look_data: Dict[str, Any]) -> bool:
+        """Update look data with validation checks.
+
+        Args:
+            look_data: Look data to update
+
+        Returns:
+            bool: True if update successful
+        """
+        if not self._active_session:
+            raise StorageError("No active designer session")
+
+        try:
+            current_data = self.read_data()
+
+            # Validate look data
+            if not self._validate_look_assignment(
+                current_data,
+                look_data["season_index"],
+                look_data["designer_index"],
+                look_data["look_number"],
+                look_data["images"],
+            ):
+                return False
+
+            success = super().update_look_data(
+                look_data["season_index"],
+                look_data["designer_index"],
+                look_data["look_number"],
+                look_data["images"],
+            )
+
+            if success:
+                self._active_session["operations"].append(
+                    {
+                        "type": "look_update",
+                        "look_number": look_data["look_number"],
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+
+            return success
+
+        except Exception as e:
+            self.logger.error(f"Error updating look data: {str(e)}")
+            return False
+
+    def _validate_look_assignment(
+        self,
+        data: Dict[str, Any],
+        season_index: int,
+        designer_index: int,
+        look_number: int,
+        images: List[Dict[str, str]],
+    ) -> bool:
+        """Validate look assignment data.
+
+        Args:
+            data: Current storage data
+            season_index: Season index
+            designer_index: Designer index
+            look_number: Look number
+            images: Image data list
+
+        Returns:
+            bool: True if validation passes
+        """
+        try:
+            if season_index >= len(data["seasons"]):
+                self.logger.error(f"Invalid season index: {season_index}")
+                return False
+
+            season = data["seasons"][season_index]
+            if designer_index >= len(season["designers"]):
+                self.logger.error(f"Invalid designer index: {designer_index}")
+                return False
+
+            designer = season["designers"][designer_index]
+            if "looks" not in designer:
+                designer["looks"] = []
+
+            # Validate look number
+            if look_number <= 0 or look_number > designer.get("total_looks", float("inf")):
+                self.logger.error(f"Invalid look number: {look_number}")
+                return False
+
+            # Validate image data
+            for image in images:
+                if not all(key in image for key in ["url", "look_number", "alt_text"]):
+                    self.logger.error("Missing required image fields")
+                    return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error validating look assignment: {str(e)}")
+            return False
+
+    def _create_restore_point(self) -> None:
+        """Create a restore point for the current state."""
+        try:
+            current_data = self.read_data()
+            checkpoint_hash = self._calculate_state_hash()
+            self._checkpoints[checkpoint_hash] = json.dumps(current_data)
+
+            # Keep only last 5 restore points
+            if len(self._checkpoints) > 5:
+                oldest_hash = list(self._checkpoints.keys())[0]
+                del self._checkpoints[oldest_hash]
+
+        except Exception as e:
+            self.logger.error(f"Error creating restore point: {str(e)}")
+
+    def _restore_from_last_point(self) -> bool:
+        """Restore data from the last restore point."""
+        try:
+            if not self._checkpoints:
+                return False
+
+            latest_hash = list(self._checkpoints.keys())[-1]
+            checkpoint_data = json.loads(self._checkpoints[latest_hash])
+
+            self.write_data(checkpoint_data)
+            self.logger.info("Successfully restored from last checkpoint")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error restoring from checkpoint: {str(e)}")
+            return False
+
+    def _calculate_state_hash(self) -> str:
+        """Calculate hash of current state for integrity checking."""
+        try:
+            current_data = self.read_data()
+            data_str = json.dumps(current_data, sort_keys=True)
+            return hashlib.md5(data_str.encode()).hexdigest()
+        except Exception as e:
+            self.logger.error(f"Error calculating state hash: {str(e)}")
+            return ""
+
+    def _log_successful_update(self) -> None:
+        """Log successful data update operation."""
+        if self._active_session:
+            self._active_session["operations"].append(
+                {
+                    "type": "successful_update",
+                    "timestamp": datetime.now().isoformat(),
+                    "state_hash": self._calculate_state_hash(),
+                }
+            )
+
+    def get_operation_log(self) -> List[Dict[str, Any]]:
+        """Get log of all storage operations.
+
+        Returns:
+            List[Dict[str, Any]]: List of operation records
+        """
+        return self.validator.get_operation_log()
+
+    def analyze_operations(self) -> Dict[str, Any]:
+        """Analyze storage operations for potential issues.
+
+        Returns:
+            Dict[str, Any]: Analysis results
+        """
+        return self.validator.analyze_storage_operations()
+
+    def get_active_session_info(self) -> Optional[Dict[str, Any]]:
+        """Get information about the current active session.
+
+        Returns:
+            Optional[Dict[str, Any]]: Active session info or None
+        """
+        if self._active_session:
+            return {
+                "designer_url": self._active_session["designer_url"],
+                "start_time": self._active_session["start_time"],
+                "operation_count": len(self._active_session["operations"]),
+                "current_state_hash": self._calculate_state_hash(),
+            }
+        return None
+
+    def validate_storage_state(self) -> Dict[str, Any]:
+        """Perform comprehensive validation of storage state.
+
+        Returns:
+            Dict[str, Any]: Validation results
+        """
+        validation_results = {"valid": True, "checks": [], "errors": []}
+
+        try:
+            # Check file integrity
+            if not self.validate_file():
+                validation_results["valid"] = False
+                validation_results["errors"].append("File integrity check failed")
+
+            # Validate data structure
+            current_data = self.read_data()
+            if not self.validator.validate_data_structure(current_data):
+                validation_results["valid"] = False
+                validation_results["errors"].append("Data structure validation failed")
+
+            # Check session state
+            if self._active_session:
+                validation_results["checks"].append(
+                    {
+                        "type": "active_session",
+                        "designer_url": self._active_session["designer_url"],
+                        "operation_count": len(self._active_session["operations"]),
+                    }
+                )
+
+            # Validate checkpoints
+            validation_results["checks"].append(
+                {
+                    "type": "checkpoints",
+                    "count": len(self._checkpoints),
+                    "latest_hash": (
+                        list(self._checkpoints.keys())[-1] if self._checkpoints else None
+                    ),
+                }
+            )
+
+            return validation_results
+
+        except Exception as e:
+            self.logger.error(f"Error validating storage state: {str(e)}")
+            return {"valid": False, "errors": [str(e)]}
+
+    def get_status(self) -> Dict[str, Any]:
+        """Get current scraping status and progress.
+
+        Returns:
+            Dict[str, Any]: Current status information
+        """
+        try:
+            current_data = self.read_data()
+            progress = current_data["metadata"]["overall_progress"]
+
+            return {
+                "total_seasons": progress["total_seasons"],
+                "completed_seasons": progress["completed_seasons"],
+                "total_designers": progress["total_designers"],
+                "completed_designers": progress["completed_designers"],
+                "total_looks": progress["total_looks"],
+                "extracted_looks": progress["extracted_looks"],
+                "current_file": str(self.current_file),
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting status: {str(e)}")
+            return {}
+
+    def validate(self) -> Dict[str, Any]:
+        """Validate current storage state.
+
+        Returns:
+            Dict[str, Any]: Validation status and any error messages
+        """
+        try:
+            if not self.current_file:
+                return {"valid": False, "error": "No file initialized"}
+
+            current_data = self.read_data()
+            required_keys = ["metadata", "seasons"]
+            metadata_keys = ["created_at", "last_updated", "overall_progress"]
+
+            # Check basic structure
+            if not all(key in current_data for key in required_keys):
+                return {"valid": False, "error": "Missing required top-level keys"}
+
+            if not all(key in current_data["metadata"] for key in metadata_keys):
+                return {"valid": False, "error": "Invalid metadata structure"}
+
+            # Validate season data
+            for season in current_data["seasons"]:
+                if not all(key in season for key in ["season", "year", "url", "designers"]):
+                    return {"valid": False, "error": "Invalid season structure"}
+
+            return {"valid": True}
+
+        except Exception as e:
+            self.logger.error(f"Validation error: {str(e)}")
+            return {"valid": False, "error": f"Validation failed: {str(e)}"}
+
+    def save_progress(self) -> None:
+        """Save current progress to disk."""
+        try:
+            # Get current data
+            current_data = self.read_data()
+
+            # Update last_updated timestamp
+            current_data["metadata"]["last_updated"] = datetime.now().isoformat()
+
+            # Write updated data
+            self.write_data(current_data)
+            self.logger.info("Progress saved successfully")
+
+        except Exception as e:
+            self.logger.error(f"Error saving progress: {str(e)}")
+            raise StorageError(f"Failed to save progress: {str(e)}")
+
+    def _update_season_with_validation(self, season_data: Dict[str, Any]) -> bool:
+        """Update season data with validation checks.
+
+        Args:
+            season_data: Season data to update
+
+        Returns:
+            bool: True if update successful
+        """
+        # Validate season data structure
+        if not all(key in season_data for key in ["season", "year", "url"]):
+            self.logger.error("Missing required season fields")
+            return False
+
+        # Check for duplicate seasons
+        if self._check_duplicate_season(season_data):
+            self.logger.warning("Duplicate season detected, updating existing")
+
+        return super().update_season_data(season_data)
+
+    def _update_designer_with_validation(self, designer_data: Dict[str, Any]) -> bool:
+        """Update designer data with validation checks.
+
+        Args:
+            designer_data: Designer data to update
+
+        Returns:
+            bool: True if update successful
+        """
+        if not self._active_session:
+            raise StorageError("No active designer session")
+
+        try:
+            current_data = self.read_data()
+
+            # Validate required fields
+            if not all(key in designer_data for key in ["data", "season_index", "designer_index"]):
+                self.logger.error("Missing required designer fields")
+                return False
+
+            # Ensure seasons array exists
+            if "seasons" not in current_data:
+                current_data["seasons"] = []
+
+            # Validate indices
+            if designer_data["season_index"] >= len(current_data["seasons"]):
+                self.logger.error(f"Invalid season index: {designer_data['season_index']}")
+                return False
+
+            season = current_data["seasons"][designer_data["season_index"]]
+            if "designers" not in season:
+                season["designers"] = []
+
+            return super().update_designer_data(
+                designer_data["season_index"],
+                designer_data["data"],
+                designer_data.get("total_looks", 0),
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error in designer update validation: {str(e)}")
+            return False
+
+    def _update_look_with_validation(self, look_data: Dict[str, Any]) -> bool:
+        """Update look data with validation checks.
+
+        Args:
+            look_data: Look data to update
+
+        Returns:
+            bool: True if update successful
+        """
+        if not self._active_session:
+            raise StorageError("No active designer session")
+
+        try:
+            current_data = self.read_data()
+
+            # Validate required fields
+            if not all(
+                key in look_data
+                for key in ["season_index", "designer_index", "look_number", "images"]
+            ):
+                self.logger.error("Missing required look fields")
+                return False
+
+            # Validate indices
+            if look_data["season_index"] >= len(current_data["seasons"]):
+                self.logger.error(f"Invalid season index: {look_data['season_index']}")
+                return False
+
+            season = current_data["seasons"][look_data["season_index"]]
+            if look_data["designer_index"] >= len(season["designers"]):
+                self.logger.error(f"Invalid designer index: {look_data['designer_index']}")
+                return False
+
+            return super().update_look_data(
+                look_data["season_index"],
+                look_data["designer_index"],
+                look_data["look_number"],
+                look_data["images"],
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error in look update validation: {str(e)}")
+            return False
+
+    def _check_duplicate_season(self, season_data: Dict[str, Any]) -> bool:
+        """Check if season already exists in storage.
+
+        Args:
+            season_data: Season data to check
+
+        Returns:
+            bool: True if season exists
+        """
+        try:
+            current_data = self.read_data()
+            for season in current_data.get("seasons", []):
+                if (
+                    season["season"] == season_data["season"]
+                    and season["year"] == season_data["year"]
+                ):
+                    return True
+            return False
+        except Exception as e:
+            self.logger.error(f"Error checking for duplicate season: {str(e)}")
+            return False
+
+
+
+=== ./src/utils/driver.py ===
+
+# utils/driver.py
+"""
+Browser driver configuration and setup utilities.
+
+This module provides utilities for setting up and configuring the Chrome WebDriver
+with custom options from the configuration settings.
+"""
+
+from typing import Optional
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.webdriver import WebDriver
+from webdriver_manager.chrome import ChromeDriverManager
+
+from ..config.settings import config
+
+
+def setup_chrome_driver() -> WebDriver:
+    """
+    Configure and initialize Chrome WebDriver with custom options.
+
+    Uses configuration settings from the config module to set up the browser
+    with appropriate options, user agent, and wait times.
+
+    Returns:
+        WebDriver: Configured Chrome WebDriver instance
+
+    Example:
+        driver = setup_chrome_driver()
+        try:
+            # Use the driver
+            driver.get("https://www.example.com")
+        finally:
+            driver.quit()
+    """
+    # Create Chrome options
+    chrome_options = _create_chrome_options()
+    # Initialize the Chrome driver with configured options
+    driver = _initialize_driver(chrome_options)
+
+    # Configure driver settings
+    _configure_driver(driver)
+
+    return driver
+
+
+def _create_chrome_options() -> Options:
+    """
+    Create and configure Chrome options from settings.
+
+    Returns:
+        Options: Configured Chrome options
+    """
+    chrome_options = Options()
+
+    # Add custom user agent
+    if "user_agent" in config.chrome_options:
+        chrome_options.add_argument(f'--user-agent={config.chrome_options["user_agent"]}')
+
+    # Add window size configuration
+    if "window_size" in config.chrome_options:
+        chrome_options.add_argument(config.chrome_options["window_size"])
+
+    # Add notifications configuration
+    if "notifications" in config.chrome_options:
+        chrome_options.add_argument(config.chrome_options["notifications"])
+
+    return chrome_options
+
+
+def _initialize_driver(options: Options) -> WebDriver:
+    """
+    Initialize Chrome WebDriver with given options.
+
+    Args:
+        options: Configured Chrome options
+
+    Returns:
+        WebDriver: Initialized Chrome WebDriver
+    """
+    print("10")  # ... remove
+    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+
+def _configure_driver(driver: WebDriver) -> None:
+    """
+    Configure WebDriver settings.
+
+    Args:
+        driver: Chrome WebDriver instance to configure
+    """
+    # Set implicit wait time from configuration
+    driver.implicitly_wait(config.browser.IMPLICIT_WAIT)
+
+
+
+=== ./src/exceptions/__init__.py ===
+
+
+
+
+=== ./src/exceptions/errors.py ===
+
+# src/exceptions/errors.py
+
+"""Custom exceptions for the Vogue Runway scraper.
+
+This module defines all custom exceptions used throughout the scraper
+implementation. It provides a hierarchy of exceptions to handle different
+types of errors that may occur during the scraping process.
+"""
+
+class ScraperError(Exception):
+    """Base exception for all scraper-related errors."""
+    pass
+
+class AuthenticationError(ScraperError):
+    """
+    Raised when authentication fails.
+    
+    This could be due to:
+    - Invalid credentials
+    - Failed login attempts
+    - Session expiration
+    - Authentication endpoint issues
+    """
+    pass
+
+class ElementNotFoundError(ScraperError):
+    """
+    Raised when an expected element is not found in the page.
+    
+    This could be due to:
+    - Page structure changes
+    - Loading issues
+    - Invalid selectors
+    - Timing issues
+    """
+    pass
+
+class NavigationError(ScraperError):
+    """
+    Raised when navigation to a page fails.
+    
+    This could be due to:
+    - Invalid URLs
+    - Network issues
+    - Page timeouts
+    - Redirects failing
+    """
+    pass
+
+class DataExtractionError(ScraperError):
+    """
+    Raised when data cannot be extracted from a page element.
+    
+    This could be due to:
+    - Unexpected data format
+    - Missing attributes
+    - Changed page structure
+    - Partial page loads
+    """
+    pass
+
+class StorageError(ScraperError):
+    """
+    Raised when storage operations fail.
+    
+    This could be due to:
+    - File system permissions
+    - Disk space issues
+    - Invalid file paths
+    - Data serialization errors
+    """
+    pass
+
+class ValidationError(ScraperError):
+    """
+    Raised when data validation fails.
+    
+    This could be due to:
+    - Invalid data format
+    - Missing required fields
+    - Data type mismatches
+    - Range/constraint violations
+    """
+    pass
+
+class FileOperationError(StorageError):
+    """
+    Raised when file operations fail.
+    
+    This could be due to:
+    - File not found
+    - Permission denied
+    - Invalid file format
+    - I/O errors
+    """
+    pass
+
+# Backwards compatibility aliases
+ScraperException = ScraperError  # For backwards compatibility
+DataSaveError = StorageError  # For backwards compatibility
+
+
+=== ./src/handlers/auth.py ===
+
+# handlers/auth.py
+"""Authentication handling for Vogue Runway scraper."""
+
+import time
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
+
+from ..config.settings import AUTH_WAIT, PAGE_LOAD_WAIT, ELEMENT_WAIT, SELECTORS
+from ..exceptions.errors import AuthenticationError, ElementNotFoundError
+
+
+class VogueAuthHandler:
+    """Handles authentication for Vogue Runway."""
+
+    def __init__(self, driver, logger, base_url: str):
+        """Initialize the auth handler."""
+        self.driver = driver
+        self.logger = logger
+        self.base_url = base_url
+
+    def authenticate(self, auth_url: str) -> bool:
+        """Handle the authentication process."""
+        self.logger.info("Starting authentication process...")
+
+        try:
+            self.driver.get(auth_url)
+            current_url = self.driver.current_url
+            self.logger.info(f"Initial navigation complete. Current URL: {current_url}")
+
+            if not self._handle_redirects():
+                return False
+
+            if "vogue.com/auth/complete" in self.driver.current_url:
+                self.logger.info("Authentication successful - Found completion URL")
+                return True
+
+            if "id.condenast.com" in self.driver.current_url:
+                self._handle_login_form()
+
+            if not self.verify_authentication():
+                raise AuthenticationError("Failed to verify authentication status")
+
+            return True
+
+        except Exception as e:
+            raise AuthenticationError(f"Authentication failed: {str(e)}") from e
+
+    def _handle_redirects(self) -> bool:
+        """Handle authentication redirects."""
+        max_redirects = 5
+        redirect_count = 0
+        last_url = self.driver.current_url
+
+        while redirect_count < max_redirects:
+            time.sleep(AUTH_WAIT)
+            current_url = self.driver.current_url
+
+            if current_url == last_url:
+                break
+
+            self.logger.info(f"Redirect {redirect_count + 1}: {current_url}")
+            last_url = current_url
+            redirect_count += 1
+
+        return True
+
+    def _handle_login_form(self):
+        """Handle Condé Nast login form."""
+        try:
+            login_form = self.driver.find_element(By.CSS_SELECTOR, "form[action*='condenast']")
+            if login_form:
+                raise AuthenticationError("Manual authentication required")
+        except NoSuchElementException:
+            self.logger.error("Unable to detect login form")
+
+    def verify_authentication(self) -> bool:
+        """Verify authentication status."""
+        try:
+            test_url = f"{self.base_url}/fashion-shows"
+            self.driver.get(test_url)
+            time.sleep(PAGE_LOAD_WAIT)
+
+            if self._check_paywall_indicators():
+                return False
+
+            return self._verify_authenticated_content()
+
+        except Exception as e:
+            self.logger.error(f"Error verifying authentication: {str(e)}")
+            return False
+
+    def _check_paywall_indicators(self) -> bool:
+        """Check for presence of paywall indicators."""
+        paywall_indicators = ["subscribe-wall", "paywall", "subscription-prompt"]
+        for indicator in paywall_indicators:
+            try:
+                element = self.driver.find_element(
+                    By.CSS_SELECTOR, f"[class*='{indicator}'], [id*='{indicator}']"
+                )
+                if element.is_displayed():
+                    self.logger.warning(f"Found paywall indicator: {indicator}")
+                    return True
+            except NoSuchElementException:
+                continue
+        return False
+
+    def _verify_authenticated_content(self) -> bool:
+        """Verify presence of authenticated content."""
+        try:
+            designer_items = self.driver.find_elements(By.CLASS_NAME, SELECTORS["designer_item"])
+            if designer_items:
+                self.logger.info("Found authenticated content")
+                return True
+        except NoSuchElementException:
+            self.logger.warning("No authenticated content found")
+        return False
+
+
+
+=== ./src/handlers/shows.py ===
+
+# handlers/shows.py
+"""Enhanced shows handler implementation for Vogue Runway scraper."""
+
+from typing import Optional
+import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    ElementClickInterceptedException,
+)
+from selenium.webdriver.remote.webdriver import WebDriver
+from logging import Logger
+
+from ..config.settings import PAGE_LOAD_WAIT
+from ..exceptions.errors import ElementNotFoundError
+
+
+class VogueShowsHandler:
+    """Handles show-related operations for Vogue Runway scraper."""
+
+    def __init__(self, driver: WebDriver, logger: Logger):
+        """Initialize the shows handler.
+
+        Args:
+            driver: Selenium WebDriver instance
+            logger: Logger instance
+        """
+        self.driver = driver
+        self.logger = logger
+
+    def get_slideshow_url(self, designer_url: str) -> Optional[str]:
+        """Navigate to designer page and enter slideshow view.
+
+        Args:
+            designer_url: URL of the designer's page
+
+        Returns:
+            Optional[str]: URL of the slideshow view after navigation or None if failed
+        """
+        self.logger.info(f"Navigating to designer page: {designer_url}")
+
+        try:
+            # Navigate to designer page
+            self.driver.get(designer_url)
+            time.sleep(PAGE_LOAD_WAIT)
+
+            # Find the gallery section
+            gallery = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF"))
+            )
+
+            # Scroll to gallery to ensure button is in view
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
+            time.sleep(2)  # Allow time for any dynamic content to load
+
+            # Find and click the "View Slideshow" button
+            button = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                EC.element_to_be_clickable(
+                    (
+                        By.CSS_SELECTOR,
+                        'a[href*="/slideshow/collection"] .button--primary span.button__label',
+                    )
+                )
+            )
+
+            # Try regular click first, fall back to JavaScript click if needed
+            try:
+                button.click()
+            except ElementClickInterceptedException:
+                self.logger.warning("Direct click failed, trying JavaScript click")
+                self.driver.execute_script("arguments[0].click();", button)
+
+            # Wait for navigation and get new URL
+            time.sleep(PAGE_LOAD_WAIT)
+            slideshow_url = self.driver.current_url
+
+            self.logger.info(f"Successfully navigated to slideshow view: {slideshow_url}")
+            return slideshow_url
+
+        except Exception as e:
+            self.logger.error(f"Failed to navigate to slideshow view: {str(e)}")
+            return None
+
+    def verify_slideshow_view(self) -> bool:
+        """Verify that we're in slideshow view by checking for key elements.
+
+        Returns:
+            bool: True if in slideshow view, False otherwise
+        """
+        try:
+            # Check for slideshow-specific elements
+            WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                EC.presence_of_all_elements_located(
+                    [
+                        (By.CLASS_NAME, "RunwayGalleryImageCollection"),
+                        (By.CSS_SELECTOR, '[data-testid="RunwayGalleryControlNext"]'),
+                        (By.CLASS_NAME, "RunwayGalleryLookNumberText-hidXa"),
+                    ]
+                )
+            )
+            return True
+
+        except (TimeoutException, NoSuchElementException):
+            return False
+
+
+
+=== ./src/handlers/images/image_extractor.py ===
+
+# handles/images/image_extractor.py
+"""
+Handles extraction and processing of image data from Vogue Runway.
+Responsible for parsing image elements, extracting metadata,
+and handling image resolution conversion.
+"""
+
+from typing import Dict, Optional
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
+from logging import Logger
+
+from ...config.settings import IMAGE_RESOLUTION
+from .look_tracker import VogueLookTracker
+
+
+class VogueImageExtractor:
+    """Handles extraction and processing of image data."""
+
+    def __init__(self, driver, logger):
+        self.driver = driver
+        self.logger = logger
+        self.look_tracker = VogueLookTracker(driver, logger)
+
+    def extract_image_data(self, img_elem) -> Optional[Dict[str, str]]:
+        """Extract image data from container element."""
+        try:
+            img = img_elem.find_element(By.CLASS_NAME, "ResponsiveImageContainer-eybHBd")
+
+            if not img:
+                return None
+
+            img_url = img.get_attribute("src")
+            if not img_url or "/verso/static/" in img_url:
+                return None
+
+            if "assets.vogue.com" in img_url:
+                img_url = img_url.replace(
+                    IMAGE_RESOLUTION["original"], IMAGE_RESOLUTION["high_res"]
+                )
+
+                look_number = self.look_tracker.get_look_number(img_elem)
+                alt_text = img.get_attribute("alt") or ""
+
+                return {"url": img_url, "look_number": look_number, "alt_text": alt_text}
+
+            return None
+
+        except NoSuchElementException:
+            return None
+        except Exception as e:
+            self.logger.error(f"Error extracting image data: {str(e)}")
+            return None
+
+
+
+=== ./src/handlers/images/look_tracker.py ===
+
+# handlers/images/look_tracker.py
+"""
+Manages tracking and counting of looks in a Vogue Runway show.
+Handles look number extraction, total look counting, and 
+maintains the state of current look position.
+"""
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
+from logging import Logger
+
+from ...config.settings import PAGE_LOAD_WAIT
+
+
+class VogueLookTracker:
+    """Handles tracking and counting of looks in a show."""
+
+    def __init__(self, driver, logger):
+        self.driver = driver
+        self.logger = logger
+
+    def get_total_looks(self) -> int:
+        """Get total number of looks in the show."""
+        try:
+            look_text = (
+                WebDriverWait(self.driver, PAGE_LOAD_WAIT)
+                .until(
+                    EC.presence_of_element_located(
+                        (By.CLASS_NAME, "RunwayGalleryLookNumberText-hidXa")
+                    )
+                )
+                .text.strip()
+            )
+
+            total = int(look_text.split("/")[-1].strip())
+            self.logger.debug(f"Found total looks: {total}")
+            return total
+
+        except (NoSuchElementException, TimeoutException, ValueError) as e:
+            self.logger.error(f"Error getting total looks: {str(e)}")
+            return 0
+
+    def get_look_number(self, img_elem) -> str:
+        """Extract look number from image container."""
+        try:
+            look_number_elem = img_elem.find_element(
+                By.CLASS_NAME, "RunwayGalleryLookNumberText-hidXa"
+            )
+            look_text = look_number_elem.text.strip()
+            return look_text.split("/")[0].replace("Look", "").strip()
+        except NoSuchElementException:
+            return "Unknown"
+
+
+
+=== ./src/handlers/images/__init__.py ===
+
+
+
+
+=== ./src/handlers/images/images_handler.py ===
+
+# handlers/images/images_handler.py
+"""Enhanced image handler with robust error handling and session management.
+
+This module provides a comprehensive implementation of the image handler with:
+- Strong session management
+- Robust error handling
+- Image validation
+- Progress tracking
+- Retry mechanisms
+"""
+
+import time
+from typing import List, Dict, Optional, Any
+from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    TimeoutException,
+    StaleElementReferenceException,
+    WebDriverException,
+)
+from logging import Logger
+
+from ...config.settings import PAGE_LOAD_WAIT, RETRY_ATTEMPTS, RETRY_DELAY, IMAGE_RESOLUTION
+from ...exceptions.errors import ElementNotFoundError, ScraperError, ValidationError
+from ...utils.storage.handler import DataStorageHandler
+from .slideshow_navigator import VogueSlideshowNavigator
+from .look_tracker import VogueLookTracker
+from .gallery_handler import VogueGalleryHandler
+
+
+class VogueImagesHandler:
+    """Enhanced coordinator for image collection process with session management."""
+
+    def __init__(
+        self,
+        driver: WebDriver,
+        logger: Logger,
+        slideshow_navigator: VogueSlideshowNavigator,
+        look_tracker: VogueLookTracker,
+        gallery_handler: VogueGalleryHandler,
+        storage_handler: DataStorageHandler,
+        season_index: int,
+        designer_index: int,
+    ):
+        """Initialize the images handler with enhanced capabilities."""
+        self.driver = driver
+        self.logger = logger
+        self.slideshow_navigator = slideshow_navigator
+        self.look_tracker = look_tracker
+        self.gallery_handler = gallery_handler
+        self.storage = storage_handler
+        self.season_index = season_index
+        self.designer_index = designer_index
+
+        # Session tracking
+        self._current_session = None
+        self._retry_count = 0
+        self._processed_looks = set()
+
+    def get_runway_images(self, show_url: str) -> List[Dict[str, str]]:
+        """Get all runway images with enhanced session management.
+
+        Args:
+            show_url: URL of the runway show
+
+        Returns:
+            List[Dict[str, str]]: List of processed images
+
+        Raises:
+            ScraperError: If image collection fails
+        """
+        self.logger.info(f"Starting runway image collection: {show_url}")
+
+        try:
+            # Initialize session
+            self._initialize_session(show_url)
+
+            # Process images
+            result = self._process_runway_images()
+
+            # Cleanup session
+            self._cleanup_session(success=True)
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Error in runway image collection: {str(e)}")
+            self._cleanup_session(success=False, error=str(e))
+            raise ScraperError(f"Runway image collection failed: {str(e)}")
+
+    def _initialize_session(self, show_url: str) -> None:
+        """Initialize processing session with safety checks.
+
+        Args:
+            show_url: URL of the show to process
+
+        Raises:
+            ValidationError: If session initialization fails
+        """
+        try:
+            # Start storage session
+            self.storage._start_designer_session(show_url)
+
+            self._current_session = {
+                "show_url": show_url,
+                "start_time": time.time(),
+                "processed_looks": set(),
+                "failed_looks": set(),
+                "total_looks": 0,
+                "retry_count": 0,
+            }
+
+            self.logger.info("Session initialized successfully")
+
+        except Exception as e:
+            self.logger.error(f"Session initialization failed: {str(e)}")
+            raise ValidationError(f"Could not initialize session: {str(e)}")
+
+    def _cleanup_session(self, success: bool, error: Optional[str] = None) -> None:
+        """Clean up processing session safely.
+
+        Args:
+            success: Whether the session completed successfully
+            error: Optional error message if session failed
+        """
+        try:
+            if self._current_session:
+                # Log session results
+                duration = time.time() - self._current_session["start_time"]
+                self.logger.info(
+                    f"Session completed - Success: {success}, "
+                    f"Duration: {duration:.2f}s, "
+                    f"Processed: {len(self._current_session['processed_looks'])}, "
+                    f"Failed: {len(self._current_session['failed_looks'])}"
+                )
+
+                if error:
+                    self.logger.error(f"Session error: {error}")
+
+                self._current_session = None
+
+            # End storage session
+            self.storage._end_designer_session()
+
+        except Exception as e:
+            self.logger.error(f"Error in session cleanup: {str(e)}")
+
+    def _process_runway_images(self) -> List[Dict[str, str]]:
+        """Process all runway images with enhanced error handling.
+
+        Returns:
+            List[Dict[str, str]]: List of processed images
+
+        Raises:
+            ScraperError: If processing fails
+        """
+        try:
+            self._navigate_to_slideshow()
+            total_looks = self._get_total_looks()
+
+            if total_looks == 0:
+                raise ValidationError("No looks found to process")
+
+            self._current_session["total_looks"] = total_looks
+            self._update_designer_total_looks(total_looks)
+
+            return self._collect_look_images(total_looks)
+
+        except Exception as e:
+            self.logger.error(f"Error processing runway images: {str(e)}")
+            raise
+
+    def _navigate_to_slideshow(self) -> None:
+        """Navigate to slideshow view with retry capability."""
+        try:
+            self.driver.get(self._current_session["show_url"])
+            time.sleep(PAGE_LOAD_WAIT)
+
+            if self.slideshow_navigator.is_slideshow_button_present():
+                if not self._retry_operation(
+                    self.slideshow_navigator.navigate_to_slideshow, "slideshow navigation"
+                ):
+                    raise ElementNotFoundError("Failed to navigate to slideshow view")
+
+        except Exception as e:
+            self.logger.error(f"Navigation error: {str(e)}")
+            raise
+
+    def _get_total_looks(self) -> int:
+        """Get total number of looks with validation.
+
+        Returns:
+            int: Total number of looks
+
+        Raises:
+            ValidationError: If total looks cannot be determined
+        """
+        total_looks = self.look_tracker.get_total_looks()
+
+        if total_looks <= 0:
+            raise ValidationError("Invalid total look count")
+
+        self.logger.info(f"Total looks to process: {total_looks}")
+        return total_looks
+
+    def _collect_look_images(self, total_looks: int) -> List[Dict[str, str]]:
+        """Collect images for all looks with progress tracking.
+
+        Args:
+            total_looks: Total number of looks to process
+
+        Returns:
+            List[Dict[str, str]]: List of all collected images
+        """
+        all_images = []
+        current_look = 1
+
+        while current_look <= total_looks:
+            if current_look in self._current_session["processed_looks"]:
+                self.logger.info(f"Look {current_look} already processed, skipping")
+                current_look += 1
+                continue
+
+            try:
+                self.logger.info(f"Processing look {current_look}/{total_looks}")
+
+                images = self._process_single_look(current_look)
+                if images:
+                    all_images.extend(images)
+                    self._current_session["processed_looks"].add(current_look)
+                else:
+                    self._current_session["failed_looks"].add(current_look)
+
+                if current_look < total_looks:
+                    if not self._navigate_to_next_look():
+                        break
+
+            except Exception as e:
+                self.logger.error(f"Error processing look {current_look}: {str(e)}")
+                self._current_session["failed_looks"].add(current_look)
+
+            current_look += 1
+
+        self._log_collection_summary(total_looks)
+        return all_images
+
+    def _process_single_look(self, look_number: int) -> Optional[List[Dict[str, str]]]:
+        """Process a single look with validation and storage.
+
+        Args:
+            look_number: Number of the look to process
+
+        Returns:
+            Optional[List[Dict[str, str]]]: Processed images or None if failed
+        """
+        try:
+            current_images = self._retry_operation(
+                self.gallery_handler.get_images_for_current_look,
+                f"image collection for look {look_number}",
+            )
+
+            if not current_images:
+                self.logger.warning(f"No images found for look {look_number}")
+                return None
+
+            if not self._validate_look_images(current_images):
+                self.logger.warning(f"Image validation failed for look {look_number}")
+                return None
+
+            # Store images with validation
+            if self._store_look_images(look_number, current_images):
+                return current_images
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error processing look {look_number}: {str(e)}")
+            return None
+
+    def _validate_look_images(self, images: List[Dict[str, str]]) -> bool:
+        """Validate collected images.
+
+        Args:
+            images: List of image data to validate
+
+        Returns:
+            bool: True if images are valid
+        """
+        try:
+            for image in images:
+                if not all(key in image for key in ["url", "look_number", "alt_text"]):
+                    return False
+
+                if not image["url"] or "/verso/static/" in image["url"]:
+                    return False
+
+                if "assets.vogue.com" not in image["url"]:
+                    return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Image validation error: {str(e)}")
+            return False
+
+    def _store_look_images(self, look_number: int, images: List[Dict[str, str]]) -> bool:
+        """Store look images with safety checks.
+
+        Args:
+            look_number: Number of the look
+            images: List of images to store
+
+        Returns:
+            bool: True if storage successful
+        """
+        try:
+            return self.storage.update_look_data(
+                self.season_index, self.designer_index, look_number, images
+            )
+        except Exception as e:
+            self.logger.error(f"Error storing look {look_number}: {str(e)}")
+            return False
+
+    def _navigate_to_next_look(self) -> bool:
+        """Navigate to next look with retry capability.
+
+        Returns:
+            bool: True if navigation successful
+        """
+        return self._retry_operation(self.slideshow_navigator.click_next, "next look navigation")
+
+    def _retry_operation(self, operation: callable, operation_name: str) -> Any:
+        """Retry an operation with exponential backoff.
+
+        Args:
+            operation: Operation to retry
+            operation_name: Name of the operation for logging
+
+        Returns:
+            Any: Result of the operation
+        """
+        retry_count = 0
+        while retry_count < RETRY_ATTEMPTS:
+            try:
+                result = operation()
+                if result is not None:
+                    return result
+            except Exception as e:
+                self.logger.warning(
+                    f"Attempt {retry_count + 1} failed for {operation_name}: {str(e)}"
+                )
+
+            retry_count += 1
+            if retry_count < RETRY_ATTEMPTS:
+                time.sleep(RETRY_DELAY * (2**retry_count))
+
+        self.logger.error(f"All retry attempts failed for {operation_name}")
+        return None
+
+    def _log_collection_summary(self, total_looks: int) -> None:
+        """Log summary of image collection process.
+
+        Args:
+            total_looks: Total number of looks processed
+        """
+        processed = len(self._current_session["processed_looks"])
+        failed = len(self._current_session["failed_looks"])
+        success_rate = (processed / total_looks) * 100 if total_looks > 0 else 0
+
+        self.logger.info(
+            f"Image collection complete - "
+            f"Processed: {processed}/{total_looks} "
+            f"({success_rate:.1f}%), "
+            f"Failed: {failed}"
+        )
+
+        if failed > 0:
+            self.logger.warning(f"Failed looks: {sorted(self._current_session['failed_looks'])}")
+
+
+
+=== ./src/handlers/images/slideshow_navigator.py ===
+
+# handlers/images/slideshow_navigator.py
+"""
+Handles navigation through the Vogue Runway slideshow interface.
+Responsible for finding and interacting with slideshow controls,
+managing page transitions, and handling navigation-related errors.
+"""
+
+import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    ElementClickInterceptedException,
+)
+from selenium.webdriver.remote.webdriver import WebDriver
+from logging import Logger
+
+from ...config.settings import PAGE_LOAD_WAIT
+from ...exceptions.errors import ElementNotFoundError
+
+
+class VogueSlideshowNavigator:
+    """Handles navigation through the slideshow interface."""
+
+    def __init__(self, driver, logger):
+        self.driver = driver
+        self.logger = logger
+
+    def is_slideshow_button_present(self) -> bool:
+        """Check if the 'View Slideshow' button is present."""
+        try:
+            gallery = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF"))
+            )
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
+            time.sleep(2)
+
+            button = gallery.find_element(
+                By.CSS_SELECTOR,
+                'a[href*="/slideshow/collection"] .button--primary span.button__label',
+            )
+            return True
+        except (NoSuchElementException, TimeoutException) as e:
+            self.logger.debug(f"Slideshow button not found: {str(e)}")
+            return False
+
+    def navigate_to_slideshow(self) -> bool:
+        """Navigate to the slideshow view."""
+        try:
+            wait = WebDriverWait(self.driver, PAGE_LOAD_WAIT)
+            gallery = wait.until(
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF"))
+            )
+
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
+            time.sleep(2)
+
+            button = wait.until(
+                EC.element_to_be_clickable(
+                    (
+                        By.CSS_SELECTOR,
+                        'a[href*="/slideshow/collection"] .button--primary span.button__label',
+                    )
+                )
+            )
+
+            try:
+                button.click()
+            except ElementClickInterceptedException:
+                self.logger.warning("Direct click failed, trying JavaScript click")
+                self.driver.execute_script("arguments[0].click();", button)
+
+            time.sleep(PAGE_LOAD_WAIT)
+            self.logger.info(f"Navigated to slideshow URL: {self.driver.current_url}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to navigate to slideshow: {str(e)}")
+            return False
+
+    def click_next(self) -> bool:
+        """Navigate to next look."""
+        try:
+            next_button = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, '[data-testid="RunwayGalleryControlNext"]')
+                )
+            )
+
+            if "disabled" in next_button.get_attribute("class").lower():
+                self.logger.warning("Next button is disabled")
+                return False
+
+            try:
+                next_button.click()
+            except ElementClickInterceptedException:
+                self.logger.warning("Direct click failed, trying JavaScript click")
+                self.driver.execute_script("arguments[0].click();", next_button)
+
+            time.sleep(1)
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error clicking next button: {str(e)}")
+            return False
+
+
+
+=== ./src/handlers/images/gallery_handler.py ===
+
+# handlers/images/gallery_handler.py
+"""
+Manages interaction with the Vogue Runway gallery interface.
+Handles finding and processing image collections, coordinating
+with ImageExtractor for data extraction.
+"""
+
+from typing import List, Dict
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.remote.webdriver import WebDriver
+from logging import Logger
+
+from ...config.settings import PAGE_LOAD_WAIT
+from ...exceptions.errors import ElementNotFoundError
+from .image_extractor import VogueImageExtractor
+
+
+class VogueGalleryHandler:
+    """Handles interaction with the image gallery interface."""
+
+    def __init__(self, driver, logger):
+        self.driver = driver
+        self.logger = logger
+        self.image_extractor = VogueImageExtractor(driver, logger)
+
+    def get_images_for_current_look(self) -> List[Dict[str, str]]:
+        """Get all images for the current look."""
+        try:
+            gallery_wrapper = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayGalleryImageCollection"))
+            )
+
+            image_elements = gallery_wrapper.find_elements(
+                By.CLASS_NAME, "ImageCollectionListItem-YjTJj"
+            )
+
+            if not image_elements:
+                raise ElementNotFoundError("No image elements found for current look")
+
+            images = []
+            for img_elem in image_elements:
+                image_data = self.image_extractor.extract_image_data(img_elem)
+                if image_data:
+                    images.append(image_data)
+
+            return images
+
+        except Exception as e:
+            self.logger.error(f"Error getting images for current look: {str(e)}")
+            return []
+
+
+
+=== ./src/handlers/seasons.py ===
+
+# handlers/seasons.py
+"""Seasons handling for Vogue Runway scraper."""
+
+import time
+from typing import List, Dict
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
+
+from ..config.settings import PAGE_LOAD_WAIT, SELECTORS
+from ..exceptions.errors import ElementNotFoundError
+
+
+class VogueSeasonsHandler:
+    """Handles season-related operations for Vogue Runway."""
+
+    def __init__(self, driver, logger, base_url: str):
+        """Initialize the seasons handler."""
+        self.driver = driver
+        self.logger = logger
+        self.base_url = base_url
+
+    def get_seasons_list(self) -> List[Dict[str, str]]:
+        """Get list of all fashion show seasons."""
+        self.logger.info("Fetching seasons list...")
+
+        try:
+            url = f"{self.base_url}/fashion-shows/seasons"
+            self.driver.get(url)
+            time.sleep(PAGE_LOAD_WAIT)
+
+            nav_groups = self._get_navigation_groups()
+            seasons = self._process_navigation_groups(nav_groups)
+
+            if not seasons:
+                raise ElementNotFoundError("No seasons found")
+
+            self.logger.info(f"Total valid seasons found: {len(seasons)}")
+            return seasons
+
+        except Exception as e:
+            self.logger.error(f"Error getting seasons list: {str(e)}")
+            raise
+
+    def _get_navigation_groups(self) -> List:
+        """Get navigation group elements."""
+        nav_groups = self.driver.find_elements(By.CLASS_NAME, SELECTORS["navigation_wrapper"])
+
+        if not nav_groups:
+            raise ElementNotFoundError("No season navigation groups found")
+
+        return nav_groups
+
+    def _process_navigation_groups(self, nav_groups) -> List[Dict[str, str]]:
+        """Process navigation groups to extract season data."""
+        seasons = []
+        for nav in nav_groups:
+            try:
+                # Skip navigation groups without year headers
+                try:
+                    year = self._get_year(nav)
+                except NoSuchElementException:
+                    continue
+
+                # Skip non-numeric years
+                if not year.isdigit():
+                    continue
+
+                seasons.extend(self._get_seasons_for_year(nav, year))
+            except Exception as e:
+                self.logger.warning(f"Error processing season group: {str(e)}")
+                continue
+        return seasons
+
+    def _get_year(self, nav_group) -> str:
+        """Extract year from navigation group."""
+        year_elem = nav_group.find_element(By.CLASS_NAME, SELECTORS["navigation_heading"])
+        return year_elem.text.strip()
+
+    def _get_seasons_for_year(self, nav_group, year: str) -> List[Dict[str, str]]:
+        """Extract seasons for a specific year."""
+        seasons = []
+        links = nav_group.find_elements(By.CLASS_NAME, SELECTORS["navigation_link"])
+
+        for link in links:
+            url = link.get_attribute("href")
+
+            # Only include URLs that start with the fashion shows path
+            if not url.startswith(f"{self.base_url}/fashion-shows/"):
+                continue
+
+            season_data = {"year": year, "season": link.text.strip(), "url": url}
+            seasons.append(season_data)
+            self.logger.info(f"Found season: {season_data['season']} {season_data['year']}")
+
+        return seasons
+
+
+
+=== ./src/handlers/designers.py ===
+
+# handlers/designers.py
+"""Designers handling for Vogue Runway scraper."""
+
+import time
+from typing import List, Dict
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
+
+from ..config.settings import PAGE_LOAD_WAIT, SELECTORS
+from ..exceptions.errors import ElementNotFoundError
+
+
+class VogueDesignersHandler:
+    """Handles designer-related operations for Vogue Runway."""
+
+    def __init__(self, driver, logger):
+        """Initialize the designers handler."""
+        self.driver = driver
+        self.logger = logger
+
+    def get_designers_for_season(self, season_url: str) -> List[Dict[str, str]]:
+        """Get list of designers for a specific season."""
+        self.logger.info(f"Fetching designers for season: {season_url}")
+
+        try:
+            self.driver.get(season_url)
+            time.sleep(PAGE_LOAD_WAIT)
+
+            designer_items = self._get_designer_items()
+            designers = self._process_designer_items(designer_items)
+
+            if not designers:
+                raise ElementNotFoundError("No designers found")
+
+            self.logger.info(f"Total designers found: {len(designers)}")
+            return designers
+
+        except Exception as e:
+            self.logger.error(f"Error getting designers: {str(e)}")
+            raise
+
+    def _get_designer_items(self) -> List:
+        """Get designer item elements."""
+        designer_items = self.driver.find_elements(By.CLASS_NAME, SELECTORS["designer_item"])
+
+        if not designer_items:
+            raise ElementNotFoundError("No designer items found")
+
+        return designer_items
+
+    def _process_designer_items(self, designer_items) -> List[Dict[str, str]]:
+        """Process designer items to extract designer data."""
+        designers = []
+        for item in designer_items:
+            try:
+                designer_data = self._extract_designer_data(item)
+                if designer_data:
+                    designers.append(designer_data)
+            except NoSuchElementException as e:
+                self.logger.warning(f"Error processing designer item: {str(e)}")
+                continue
+        return designers
+
+    def _extract_designer_data(self, item) -> Dict[str, str]:
+        """Extract designer data from item element."""
+        link = item.find_element(By.CLASS_NAME, SELECTORS["designer_link"])
+        designer_data = {"name": link.text.strip(), "url": link.get_attribute("href")}
+        self.logger.info(f"Found designer: {designer_data['name']}")
+        return designer_data
+
+
+
+=== ./src/handlers/__init__.py ===
+
+
+
+
+=== ./src/handlers/slideshow.py ===
+
+# handlers/slideshow.py
+"""Enhanced slideshow navigation and image extraction for Vogue Runway scraper."""
+
+from typing import List, Dict, Optional
+import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+    ElementClickInterceptedException,
+)
+from utils.storage.progress_tracker import ProgressTracker
+
+
+class VogueSlideshowScraper:
+    """Handles complete slideshow navigation and image extraction."""
+
+    def __init__(self, driver, logger, storage_handler):
+        self.driver = driver
+        self.logger = logger
+        self.storage = storage_handler
+
+    def scrape_designer_slideshow(
+        self,
+        designer_url: str,
+        season_index: int,
+        designer_index: int,
+        progress_tracker: ProgressTracker,
+    ) -> bool:
+        """Scrape all looks from a designer's slideshow."""
+        try:
+            # Navigate to designer page and enter slideshow view
+            if not self._navigate_to_slideshow(designer_url):
+                return False
+
+            # Get total number of looks
+            total_looks = self._get_total_looks()
+            if total_looks == 0:
+                self.logger.error("No looks found in slideshow")
+                return False
+
+            self.logger.info(f"Starting to scrape {total_looks} looks")
+
+            # Update total looks in storage
+            current_data = self.storage.read_data()
+            season = current_data["seasons"][season_index]
+            designer = season["designers"][designer_index]
+            designer["total_looks"] = total_looks
+            self.storage.write_data(current_data)
+            progress_tracker.update_overall_progress()
+
+            # Process each look
+            current_look = 1
+            while current_look <= total_looks:
+                self.logger.info(f"Processing look {current_look}/{total_looks}")
+
+                # Extract images for current look
+                look_images = self._extract_look_images(current_look)
+                if look_images:
+                    # Store the images and update progress
+                    if self._store_look_data(
+                        season_index, designer_index, current_look, look_images
+                    ):
+                        progress_tracker.update_look_progress(season_index, designer_index)
+
+                # Move to next look if not at end
+                if current_look < total_looks:
+                    if not self._navigate_to_next_look():
+                        self.logger.error(f"Failed to navigate to next look after {current_look}")
+                        break
+
+                current_look += 1
+
+            # Final progress update
+            progress_tracker.update_overall_progress()
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error scraping designer slideshow: {str(e)}")
+            return False
+
+    def _store_look_data(
+        self, season_index: int, designer_index: int, look_number: int, images: List[Dict[str, str]]
+    ) -> bool:
+        """Store the extracted look data and mark as completed."""
+        try:
+            # Add completed flag to look data
+            look_data = {
+                "season_index": season_index,
+                "designer_index": designer_index,
+                "look_number": look_number,
+                "images": images,
+                "completed": True,  # Mark look as completed
+            }
+
+            success = self.storage.update_look_data(
+                season_index=season_index,
+                designer_index=designer_index,
+                look_number=look_number,
+                images=images,
+            )
+
+            if success:
+                # Update extracted_looks count
+                current_data = self.storage.read_data()
+                designer = current_data["seasons"][season_index]["designers"][designer_index]
+                designer["extracted_looks"] = sum(
+                    1 for look in designer.get("looks", []) if look.get("completed", False)
+                )
+                self.storage.write_data(current_data)
+
+            return success
+
+        except Exception as e:
+            self.logger.error(f"Error storing look {look_number} data: {str(e)}")
+            return False
+
+    def _navigate_to_slideshow(self, designer_url: str) -> bool:
+        """Navigate to designer page and enter slideshow view."""
+        try:
+            self.driver.get(designer_url)
+            time.sleep(2)  # Wait for page load
+
+            # Find and scroll to gallery section
+            gallery = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF"))
+            )
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
+            time.sleep(1)
+
+            # Find and click slideshow button
+            button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable(
+                    (
+                        By.CSS_SELECTOR,
+                        'a[href*="/slideshow/collection"] .button--primary span.button__label',
+                    )
+                )
+            )
+
+            try:
+                button.click()
+            except ElementClickInterceptedException:
+                self.driver.execute_script("arguments[0].click();", button)
+
+            time.sleep(2)  # Wait for slideshow to load
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to navigate to slideshow: {str(e)}")
+            return False
+
+    def _get_total_looks(self) -> int:
+        """Get the total number of looks in the slideshow."""
+        try:
+            look_text = (
+                WebDriverWait(self.driver, 10)
+                .until(
+                    EC.presence_of_element_located(
+                        (By.CLASS_NAME, "RunwayGalleryLookNumberText-hidXa")
+                    )
+                )
+                .text.strip()
+            )
+
+            # Extract total from format "Look 1/25"
+            total = int(look_text.split("/")[-1].strip())
+            return total
+
+        except (TimeoutException, NoSuchElementException, ValueError) as e:
+            self.logger.error(f"Error getting total looks: {str(e)}")
+            return 0
+
+    def _extract_look_images(self, look_number: int) -> List[Dict[str, str]]:
+        """Extract all images for the current look."""
+        try:
+            # Find the image collection container
+            collection = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayGalleryImageCollection"))
+            )
+
+            # Find all image elements
+            image_elements = collection.find_elements(
+                By.CLASS_NAME, "ImageCollectionListItem-YjTJj"
+            )
+
+            images = []
+            for img_elem in image_elements:
+                image_data = self._extract_single_image(img_elem, look_number)
+                if image_data:
+                    images.append(image_data)
+
+            return images
+
+        except Exception as e:
+            self.logger.error(f"Error extracting images for look {look_number}: {str(e)}")
+            return []
+
+    def _extract_single_image(self, img_elem, look_number: int) -> Optional[Dict[str, str]]:
+        """Extract data for a single image."""
+        try:
+            img = img_elem.find_element(By.CLASS_NAME, "ResponsiveImageContainer-eybHBd")
+
+            if not img:
+                return None
+
+            img_url = img.get_attribute("src")
+            if not img_url or "/verso/static/" in img_url:
+                return None
+
+            # Ensure we're getting the high-res version
+            if "assets.vogue.com" in img_url:
+                img_url = img_url.replace("w_320", "w_1920")
+
+                return {
+                    "url": img_url,
+                    "look_number": str(look_number),
+                    "alt_text": img.get_attribute("alt") or f"Look {look_number}",
+                }
+
+            return None
+
+        except NoSuchElementException:
+            return None
+
+    def _navigate_to_next_look(self) -> bool:
+        """Navigate to the next look in the slideshow."""
+        try:
+            next_button = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, '[data-testid="RunwayGalleryControlNext"]')
+                )
+            )
+
+            # Check if button is disabled
+            if "disabled" in next_button.get_attribute("class").lower():
+                return False
+
+            # Try to click the next button
+            try:
+                next_button.click()
+            except ElementClickInterceptedException:
+                self.driver.execute_script("arguments[0].click();", next_button)
+
+            time.sleep(1)  # Wait for next look to load
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error navigating to next look: {str(e)}")
+            return False
+
+    def _store_look_data(
+        self, season_index: int, designer_index: int, look_number: int, images: List[Dict[str, str]]
+    ) -> None:
+        """Store the extracted look data."""
+        try:
+            self.storage.update_look_data(
+                season_index=season_index,
+                designer_index=designer_index,
+                look_number=look_number,
+                images=images,
+            )
+        except Exception as e:
+            self.logger.error(f"Error storing look {look_number} data: {str(e)}")
+
+
+

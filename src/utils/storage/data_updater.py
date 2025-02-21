@@ -1,3 +1,4 @@
+# utils/storage/data_updater.py
 """Data updater for handling all storage update operations.
 
 This module extends the base storage handler to provide functionality for
@@ -191,51 +192,27 @@ class DataUpdater(BaseStorageHandler):
             # Find or create look entry
             look_entry = self._get_or_create_look(designer, look_number)
 
-            # Update images with timestamps and types, preventing duplicates
+            # Update images with timestamps and types
             timestamp = datetime.now().isoformat()
-            processed_images = self._process_images(images, timestamp)
+            self._process_images(images, timestamp)
 
-            # Only add non-duplicate images
-            new_images = []
-            for new_image in processed_images:
-                if not self._is_duplicate_image(look_entry["images"], new_image):
-                    new_images.append(new_image)
+            # Update look data
+            look_entry["images"].extend(images)
+            look_entry["completed"] = True
 
-            if new_images:  # Only update if there are new images
-                look_entry["images"].extend(new_images)
-                look_entry["completed"] = True
+            # Sort and update progress
+            self._sort_looks(designer)
+            self._update_completion_status(designer, season)
 
-                # Sort and update progress
-                self._sort_looks(designer)
-                self._update_completion_status(designer, season)
+            current_data["metadata"]["last_updated"] = timestamp
 
-                current_data["metadata"]["last_updated"] = timestamp
-
-                self.write_data(current_data)
-                self.logger.info(f"Updated look {look_number} with {len(new_images)} new images")
-
+            self.write_data(current_data)
+            self.logger.info(f"Updated look {look_number} with {len(images)} new images")
             return True
 
         except Exception as e:
             self.logger.error(f"Error updating look data: {str(e)}")
             return False
-
-    def _is_duplicate_image(
-        self, existing_images: List[Dict[str, str]], new_image: Dict[str, str]
-    ) -> bool:
-        """Check if an image already exists in the look's images.
-
-        Args:
-            existing_images: List of existing images
-            new_image: New image to check
-
-        Returns:
-            bool: True if image is a duplicate
-        """
-        for existing in existing_images:
-            if existing["url"] == new_image["url"]:
-                return True
-        return False
 
     def _get_or_create_look(self, designer: Dict[str, Any], look_number: int) -> Dict[str, Any]:
         """Get existing look entry or create new one.
@@ -255,24 +232,17 @@ class DataUpdater(BaseStorageHandler):
         designer["looks"].append(look_entry)
         return look_entry
 
-    def _process_images(self, images: List[Dict[str, str]], timestamp: str) -> List[Dict[str, str]]:
+    def _process_images(self, images: List[Dict[str, str]], timestamp: str) -> None:
         """Process images adding timestamps and determining types.
 
         Args:
             images: List of image dictionaries
             timestamp: Timestamp to add to images
-
-        Returns:
-            List[Dict[str, str]]: Processed images
         """
-        processed_images = []
         for image in images:
-            processed_image = image.copy()
-            if "type" not in processed_image:
-                processed_image["type"] = determine_image_type(processed_image.get("alt_text", ""))
-            processed_image["timestamp"] = timestamp
-            processed_images.append(processed_image)
-        return processed_images
+            if "type" not in image:
+                image["type"] = determine_image_type(image.get("alt_text", ""))
+            image["timestamp"] = timestamp
 
     def _sort_looks(self, designer: Dict[str, Any]) -> None:
         """Sort looks by look number.
@@ -289,26 +259,8 @@ class DataUpdater(BaseStorageHandler):
             designer: Designer data dictionary
             season: Season data dictionary
         """
-        # Count looks that have valid images and are marked complete
-        completed_looks = sum(
-            1 for look in designer["looks"] if look["completed"] and look["images"]
-        )
+        designer["extracted_looks"] = sum(1 for look in designer["looks"] if look["completed"])
+        designer["completed"] = designer["extracted_looks"] >= designer["total_looks"]
 
-        designer["extracted_looks"] = completed_looks
-        designer["completed"] = (
-            completed_looks >= designer["total_looks"]
-            if designer.get("total_looks", 0) > 0
-            else False
-        )
-
-        # Update season completion based on all designers
-        completed_designers = sum(
-            1 for d in season["designers"] if d["completed"] and d.get("total_looks", 0) > 0
-        )
-
-        season["completed_designers"] = completed_designers
-        season["completed"] = (
-            completed_designers >= season["total_designers"]
-            if season.get("total_designers", 0) > 0
-            else False
-        )
+        season["completed_designers"] = sum(1 for d in season["designers"] if d["completed"])
+        season["completed"] = season["completed_designers"] >= season["total_designers"]

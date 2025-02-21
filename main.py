@@ -17,6 +17,7 @@ from src.utils.storage.storage_handler import DataStorageHandler
 from src.config.settings import BASE_URL, AUTH_URL
 from src.exceptions.errors import AuthenticationError, ScraperError, StorageError
 from src.handlers.slideshow import VogueSlideshowScraper
+from src.utils.storage.progress_tracker import ProgressTracker
 
 
 def find_latest_checkpoint() -> Optional[str]:
@@ -170,8 +171,9 @@ class VogueRunwayScraper:
                 designers = self.scraper.get_designers_for_season(season["url"])
                 self.logger.info(f"Total designers found: {len(designers)}")
 
-                # Initialize slideshow scraper
+                # Initialize slideshow scraper and progress tracker
                 slideshow_scraper = VogueSlideshowScraper(self.driver, self.logger, self.storage)
+                progress_tracker = ProgressTracker(self.storage, self.logger)
 
                 for designer_index, designer in enumerate(designers):
                     # Reset session state at start of each iteration
@@ -182,13 +184,6 @@ class VogueRunwayScraper:
                         if self.storage.is_designer_completed(designer["url"]):
                             self.logger.info(f"Designer already completed: {designer['name']}")
                             continue
-
-                        # Ensure any existing session is ended
-                        if (
-                            hasattr(self.storage, "_active_session")
-                            and self.storage._active_session
-                        ):
-                            self.storage._end_designer_session()
 
                         # Start designer session
                         self.logger.info(f"Starting session for designer: {designer['name']}")
@@ -205,9 +200,9 @@ class VogueRunwayScraper:
                                 "looks": [],
                             },
                             "total_looks": 0,
+                            "extracted_looks": 0,  # Initialize extracted looks counter
                         }
 
-                        self.logger.info(f"Updating data for designer: {designer['name']}")
                         success = self.storage.update_data(designer_data=designer_data)
                         if not success:
                             self.logger.error(
@@ -217,7 +212,10 @@ class VogueRunwayScraper:
 
                         # Scrape the designer's slideshow
                         success = slideshow_scraper.scrape_designer_slideshow(
-                            designer["url"], season_index, designer_index
+                            designer["url"],
+                            season_index,
+                            designer_index,
+                            progress_tracker,  # Pass progress tracker to slideshow scraper
                         )
 
                         if not success:
@@ -229,7 +227,8 @@ class VogueRunwayScraper:
                             self.storage._end_designer_session()
                             active_session = False
 
-                        # Save progress
+                        # Update progress and save
+                        progress_tracker.update_overall_progress()
                         self.storage.save_progress()
                         self.logger.info(f"Completed processing designer: {designer['name']}")
 

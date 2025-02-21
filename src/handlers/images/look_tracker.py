@@ -1,3 +1,4 @@
+# handlers/images/look_tracker.py
 """
 Manages tracking and counting of looks in a Vogue Runway show.
 Handles look number extraction, total look counting, and 
@@ -14,9 +15,10 @@ from logging import Logger
 
 from ...config.settings import PAGE_LOAD_WAIT
 
+
 class VogueLookTracker:
     """Handles tracking and counting of looks in a show."""
-    
+
     def __init__(self, driver, logger):
         self.driver = driver
         self.logger = logger
@@ -24,16 +26,20 @@ class VogueLookTracker:
     def get_total_looks(self) -> int:
         """Get total number of looks in the show."""
         try:
-            look_text = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
-                EC.presence_of_element_located(
-                    (By.CLASS_NAME, 'RunwayGalleryLookNumberText-hidXa')
+            look_text = (
+                WebDriverWait(self.driver, PAGE_LOAD_WAIT)
+                .until(
+                    EC.presence_of_element_located(
+                        (By.CLASS_NAME, "RunwayGalleryLookNumberText-hidXa")
+                    )
                 )
-            ).text.strip()
-            
-            total = int(look_text.split('/')[-1].strip())
+                .text.strip()
+            )
+
+            total = int(look_text.split("/")[-1].strip())
             self.logger.debug(f"Found total looks: {total}")
             return total
-            
+
         except (NoSuchElementException, TimeoutException, ValueError) as e:
             self.logger.error(f"Error getting total looks: {str(e)}")
             return 0
@@ -42,10 +48,9 @@ class VogueLookTracker:
         """Extract look number from image container."""
         try:
             look_number_elem = img_elem.find_element(
-                By.CLASS_NAME, 'RunwayGalleryLookNumberText-hidXa'
+                By.CLASS_NAME, "RunwayGalleryLookNumberText-hidXa"
             )
             look_text = look_number_elem.text.strip()
-            return look_text.split('/')[0].replace('Look', '').strip()
+            return look_text.split("/")[0].replace("Look", "").strip()
         except NoSuchElementException:
-            return 'Unknown'
-
+            return "Unknown"

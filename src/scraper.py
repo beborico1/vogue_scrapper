@@ -1,3 +1,4 @@
+# scraper.py - Main Vogue Runway scraper implementation.
 """Main Vogue Runway scraper implementation."""
 
 from typing import List, Dict, Optional

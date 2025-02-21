@@ -1,3 +1,4 @@
+# handlers/images/slideshow_navigator.py
 """
 Handles navigation through the Vogue Runway slideshow interface.
 Responsible for finding and interacting with slideshow controls,
@@ -11,7 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
-    ElementClickInterceptedException
+    ElementClickInterceptedException,
 )
 from selenium.webdriver.remote.webdriver import WebDriver
 from logging import Logger
@@ -19,9 +20,10 @@ from logging import Logger
 from ...config.settings import PAGE_LOAD_WAIT
 from ...exceptions.errors import ElementNotFoundError
 
+
 class VogueSlideshowNavigator:
     """Handles navigation through the slideshow interface."""
-    
+
     def __init__(self, driver, logger):
         self.driver = driver
         self.logger = logger
@@ -30,14 +32,14 @@ class VogueSlideshowNavigator:
         """Check if the 'View Slideshow' button is present."""
         try:
             gallery = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
-                EC.presence_of_element_located((By.CLASS_NAME, 'RunwayShowPageGalleryCta-fmTQJF'))
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF"))
             )
             self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
             time.sleep(2)
-            
+
             button = gallery.find_element(
                 By.CSS_SELECTOR,
-                'a[href*="/slideshow/collection"] .button--primary span.button__label'
+                'a[href*="/slideshow/collection"] .button--primary span.button__label',
             )
             return True
         except (NoSuchElementException, TimeoutException) as e:
@@ -49,28 +51,31 @@ class VogueSlideshowNavigator:
         try:
             wait = WebDriverWait(self.driver, PAGE_LOAD_WAIT)
             gallery = wait.until(
-                EC.presence_of_element_located((By.CLASS_NAME, 'RunwayShowPageGalleryCta-fmTQJF'))
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayShowPageGalleryCta-fmTQJF"))
             )
-            
+
             self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
             time.sleep(2)
-            
+
             button = wait.until(
                 EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, 'a[href*="/slideshow/collection"] .button--primary span.button__label')
+                    (
+                        By.CSS_SELECTOR,
+                        'a[href*="/slideshow/collection"] .button--primary span.button__label',
+                    )
                 )
             )
-            
+
             try:
                 button.click()
             except ElementClickInterceptedException:
                 self.logger.warning("Direct click failed, trying JavaScript click")
                 self.driver.execute_script("arguments[0].click();", button)
-            
+
             time.sleep(PAGE_LOAD_WAIT)
             self.logger.info(f"Navigated to slideshow URL: {self.driver.current_url}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to navigate to slideshow: {str(e)}")
             return False
@@ -83,20 +88,20 @@ class VogueSlideshowNavigator:
                     (By.CSS_SELECTOR, '[data-testid="RunwayGalleryControlNext"]')
                 )
             )
-            
-            if 'disabled' in next_button.get_attribute('class').lower():
+
+            if "disabled" in next_button.get_attribute("class").lower():
                 self.logger.warning("Next button is disabled")
                 return False
-            
+
             try:
                 next_button.click()
             except ElementClickInterceptedException:
                 self.logger.warning("Direct click failed, trying JavaScript click")
                 self.driver.execute_script("arguments[0].click();", next_button)
-            
+
             time.sleep(1)
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error clicking next button: {str(e)}")
             return False

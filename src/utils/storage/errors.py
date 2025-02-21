@@ -1,3 +1,4 @@
+# utils/storage/errors.py
 class StorageError(Exception):
     """Base exception for storage-related errors."""
 

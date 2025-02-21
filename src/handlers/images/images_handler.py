@@ -1,3 +1,4 @@
+# handlers/images/images_handler.py
 """Enhanced image handler with robust error handling and session management.
 
 This module provides a comprehensive implementation of the image handler with:

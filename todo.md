@@ -1,17 +1,25 @@
 # To Do List
 
+## Common prompt hats
+
+Please provide with the final complete code for _ with your suggested changes
+
 ## Must
 
-1. Modularize
-2. Collections that do not have a View Slideshow button and just looks like that
-3. Run on raspberry pi
+          "extracted_looks": 0, in the designer object is not being updated
+          estimated completion is absolutely off
+
+Collections that do not have a View Slideshow button and just looks like that
+Make an html viewer of the json
 
 ## Should
 
-1. Run to find discrepancies in the json images emptys, looks emptys, designers emptys, seasons emptys etc.
-2. Vectorize every image features
-3. Make a visualizer of each outfit with its closest neighbors using RESNET
-4. Make a searcher using CLIP
+Run on raspberry pi
+Modularize
+Run to find discrepancies in the json images emptys, looks emptys, designers emptys, seasons emptys etc.
+Vectorize every image features
+Make a visualizer of each outfit with its closest neighbors using RESNET
+Make a searcher using CLIP
 
 ## Could
 
@@ -23,3 +31,25 @@
 ## Wont
 
 1. Make it faster
+
+## Done
+
+The
+
+    "overall_progress": {
+      "total_seasons": 0,
+      "completed_seasons": 0,
+      "total_designers": 0,
+      "completed_designers": 0,
+      "total_looks": 0,
+      "extracted_looks": 0
+    }
+
+Is not being updated in real time, we should also add to that object like an elapsed time and estimated time
+
+The
+          "total_looks": 0,
+          "extracted_looks": 0,
+is not being updated real time
+
+Not any one timing field is being added to the json

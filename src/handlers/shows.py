@@ -1,3 +1,4 @@
+# handlers/shows.py
 """Enhanced shows handler implementation for Vogue Runway scraper."""
 
 from typing import Optional

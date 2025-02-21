@@ -1,3 +1,4 @@
+# handles/images/image_extractor.py
 """
 Handles extraction and processing of image data from Vogue Runway.
 Responsible for parsing image elements, extracting metadata,
@@ -14,9 +15,10 @@ from logging import Logger
 from ...config.settings import IMAGE_RESOLUTION
 from .look_tracker import VogueLookTracker
 
+
 class VogueImageExtractor:
     """Handles extraction and processing of image data."""
-    
+
     def __init__(self, driver, logger):
         self.driver = driver
         self.logger = logger
@@ -25,34 +27,27 @@ class VogueImageExtractor:
     def extract_image_data(self, img_elem) -> Optional[Dict[str, str]]:
         """Extract image data from container element."""
         try:
-            img = img_elem.find_element(
-                By.CLASS_NAME, 'ResponsiveImageContainer-eybHBd'
-            )
-            
+            img = img_elem.find_element(By.CLASS_NAME, "ResponsiveImageContainer-eybHBd")
+
             if not img:
                 return None
-            
-            img_url = img.get_attribute('src')
-            if not img_url or '/verso/static/' in img_url:
+
+            img_url = img.get_attribute("src")
+            if not img_url or "/verso/static/" in img_url:
                 return None
-            
-            if 'assets.vogue.com' in img_url:
+
+            if "assets.vogue.com" in img_url:
                 img_url = img_url.replace(
-                    IMAGE_RESOLUTION['original'],
-                    IMAGE_RESOLUTION['high_res']
+                    IMAGE_RESOLUTION["original"], IMAGE_RESOLUTION["high_res"]
                 )
-                
+
                 look_number = self.look_tracker.get_look_number(img_elem)
-                alt_text = img.get_attribute('alt') or ''
-                
-                return {
-                    'url': img_url,
-                    'look_number': look_number,
-                    'alt_text': alt_text
-                }
-                
+                alt_text = img.get_attribute("alt") or ""
+
+                return {"url": img_url, "look_number": look_number, "alt_text": alt_text}
+
             return None
-            
+
         except NoSuchElementException:
             return None
         except Exception as e:

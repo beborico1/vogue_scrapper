@@ -1,4 +1,4 @@
-"""Enhanced slideshow navigation and image extraction for Vogue Runway scraper."""
+"""Enhanced slideshow scraper with progress tracking."""
 
 from typing import List, Dict, Optional
 import time
@@ -13,27 +13,15 @@ from selenium.common.exceptions import (
 
 
 class VogueSlideshowScraper:
-    """Handles complete slideshow navigation and image extraction."""
-
     def __init__(self, driver, logger, storage_handler):
         self.driver = driver
         self.logger = logger
         self.storage = storage_handler
 
     def scrape_designer_slideshow(
-        self, designer_url: str, season_index: int, designer_index: int
+        self, designer_url: str, season_index: int, designer_index: int, progress_tracker
     ) -> bool:
-        """
-        Scrape all looks from a designer's slideshow.
-
-        Args:
-            designer_url: URL of the designer's page
-            season_index: Index of the season in storage
-            designer_index: Index of the designer in storage
-
-        Returns:
-            bool: True if scraping was successful
-        """
+        """Scrape all looks from a designer's slideshow."""
         try:
             # Navigate to designer page and enter slideshow view
             if not self._navigate_to_slideshow(designer_url):
@@ -47,6 +35,16 @@ class VogueSlideshowScraper:
 
             self.logger.info(f"Starting to scrape {total_looks} looks")
 
+            # Update total looks in storage
+            current_data = self.storage.read_data()
+            season = current_data["seasons"][season_index]
+            designer = season["designers"][designer_index]
+            designer["total_looks"] = total_looks
+            self.storage.write_data(current_data)
+
+            # Initialize progress
+            progress_tracker.update_progress()
+
             # Process each look
             current_look = 1
             while current_look <= total_looks:
@@ -56,7 +54,15 @@ class VogueSlideshowScraper:
                 look_images = self._extract_look_images(current_look)
                 if look_images:
                     # Store the images
-                    self._store_look_data(season_index, designer_index, current_look, look_images)
+                    if self._store_look_data(
+                        season_index, designer_index, current_look, look_images
+                    ):
+                        # Update progress after each successful look
+                        progress_tracker.update_look_progress(season_index, designer_index)
+
+                        # Print progress summary every 5 looks
+                        if current_look % 5 == 0:
+                            progress_tracker.print_progress_summary()
 
                 # Move to next look if not at end
                 if current_look < total_looks:
@@ -66,10 +72,49 @@ class VogueSlideshowScraper:
 
                 current_look += 1
 
+            # Final progress update
+            progress_tracker.update_progress(force_save=True)
+            progress_tracker.print_progress_summary()
             return True
 
         except Exception as e:
             self.logger.error(f"Error scraping designer slideshow: {str(e)}")
+            return False
+
+    def _store_look_data(
+        self, season_index: int, designer_index: int, look_number: int, images: List[Dict[str, str]]
+    ) -> bool:
+        """Store the extracted look data and mark as completed."""
+        try:
+            # Add completed flag to look data
+            look_data = {
+                "season_index": season_index,
+                "designer_index": designer_index,
+                "look_number": look_number,
+                "images": images,
+                "completed": True,  # Mark look as completed
+            }
+
+            success = self.storage.update_look_data(
+                season_index=season_index,
+                designer_index=designer_index,
+                look_number=look_number,
+                images=images,
+            )
+
+            if success:
+                # Update extracted_looks count
+                current_data = self.storage.read_data()
+                designer = current_data["seasons"][season_index]["designers"][designer_index]
+                designer["extracted_looks"] = sum(
+                    1 for look in designer.get("looks", []) if look.get("completed", False)
+                )
+                self.storage.write_data(current_data)
+
+            return success
+
+        except Exception as e:
+            self.logger.error(f"Error storing look {look_number} data: {str(e)}")
             return False
 
     def _navigate_to_slideshow(self, designer_url: str) -> bool:
