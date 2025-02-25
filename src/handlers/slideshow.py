@@ -130,6 +130,18 @@ class VogueSlideshowScraper:
             
             if result.returncode == 0:
                 self.logger.info(f"Look updater script success: {result.stdout}")
+                
+                # Make sure Redis storage is explicitly told to reimport from the temp file
+                # This direct call is necessary to ensure proper synchronization
+                if hasattr(self.storage, 'update_look_data'):
+                    self.logger.info("Explicitly updating look data in Redis storage")
+                    self.storage.update_look_data(
+                        season_index=season_index,
+                        designer_index=designer_index,
+                        look_number=look_number,
+                        images=images
+                    )
+                
                 return True
             else:
                 self.logger.error(f"Look updater script failed: {result.stderr}")
