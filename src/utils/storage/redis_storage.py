@@ -985,9 +985,39 @@ class RedisStorageHandler:
             if not designer_url:
                 self.logger.error("Missing designer URL")
                 return False
+            
+            # Update designer total_looks if not set
+            if designer.get("total_looks", 0) == 0 and "total_looks" in designer:
+                # Find the maximum look number from the slideshow to set total_looks
+                total_looks = max(look_number, designer.get("total_looks", 0))
                 
+                # Update the designer directly in Redis
+                designer_key = self.DESIGNER_KEY_PATTERN.format(url=designer_url)
+                if self.redis.exists(designer_key):
+                    designer_data = json.loads(self.redis.get(designer_key))
+                    designer_obj = Designer.from_dict(designer_data)
+                    designer_obj.total_looks = total_looks
+                    self.redis.set(designer_key, json.dumps(designer_obj.to_dict()))
+                    
+                    # Also update in the season data
+                    designer["total_looks"] = total_looks
+                    season_key = self.SEASON_KEY_PATTERN.format(season=season["season"], year=season["year"])
+                    if self.redis.exists(season_key):
+                        season_data = json.loads(self.redis.get(season_key))
+                        season_obj = Season.from_dict(season_data)
+                        for d in season_obj.designers:
+                            if d.url == designer_url:
+                                d.total_looks = total_looks
+                                break
+                        self.redis.set(season_key, json.dumps(season_obj.to_dict()))
+            
             # Add look
-            return self.add_look(designer_url, look_number, images)
+            result = self.add_look(designer_url, look_number, images)
+            
+            # Force an update of the metadata progress
+            self._update_metadata_progress()
+            
+            return result
             
         except Exception as e:
             self.logger.error(f"Error updating look data: {str(e)}")
