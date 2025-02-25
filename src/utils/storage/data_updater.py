@@ -259,8 +259,27 @@ class DataUpdater(BaseStorageHandler):
             designer: Designer data dictionary
             season: Season data dictionary
         """
-        designer["extracted_looks"] = sum(1 for look in designer["looks"] if look["completed"])
-        designer["completed"] = designer["extracted_looks"] >= designer["total_looks"]
-
-        season["completed_designers"] = sum(1 for d in season["designers"] if d["completed"])
-        season["completed"] = season["completed_designers"] >= season["total_designers"]
+        # Accurately count extracted looks
+        designer["extracted_looks"] = sum(1 for look in designer["looks"] if look.get("completed", False))
+        
+        # Update designer completion status
+        total_looks = designer.get("total_looks", 0)
+        if total_looks > 0:
+            designer["completed"] = designer["extracted_looks"] >= total_looks
+        else:
+            designer["completed"] = False
+        
+        # Update season completion status
+        season["completed_designers"] = sum(1 for d in season["designers"] if d.get("completed", False))
+        total_designers = season.get("total_designers", 0)
+        if total_designers > 0:
+            season["completed"] = season["completed_designers"] >= total_designers
+        else:
+            season["completed"] = False
+            
+        # Log completion status for debugging
+        self.logger.debug(
+            f"Designer: {designer.get('name')} - "
+            f"Extracted: {designer['extracted_looks']}/{total_looks} - "
+            f"Completed: {designer['completed']}"
+        )

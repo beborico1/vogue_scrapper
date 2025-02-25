@@ -23,28 +23,71 @@ class VogueDesignersHandler:
         self.logger.info(f"Fetching designers for season: {season_url}")
 
         try:
+            # Validate that this is a valid runway season URL before proceeding
+            if "/article/" in season_url or not any(pattern in season_url for pattern in ["-ready-to-wear", "-menswear", "-couture", "-bridal", "-resort"]):
+                self.logger.warning(f"Invalid season URL (likely an article): {season_url}")
+                return []
+                
             self.driver.get(season_url)
             time.sleep(PAGE_LOAD_WAIT)
-
-            designer_items = self._get_designer_items()
-            designers = self._process_designer_items(designer_items)
+            
+            # Use the navigation links to find designers rather than summary items
+            # This targets specifically the designer navigation links within the season page
+            designers = self._get_designers_from_navigation()
+            
+            if not designers:
+                self.logger.warning(f"No designers found using navigation. Fallback to summary items.")
+                # Fallback to the old method only for valid runway URLs
+                designer_items = self._get_designer_items()
+                designers = self._process_designer_items(designer_items)
 
             if not designers:
                 raise ElementNotFoundError("No designers found")
 
-            self.logger.info(f"Total designers found: {len(designers)}")
+            # Filter out any designer URLs that contain "/article/"
+            designers = [d for d in designers if "/article/" not in d["url"]]
+            
+            self.logger.info(f"Total valid designers found: {len(designers)}")
             return designers
 
         except Exception as e:
             self.logger.error(f"Error getting designers: {str(e)}")
             raise
+            
+    def _get_designers_from_navigation(self) -> List[Dict[str, str]]:
+        """Get designers from the navigation links on the season page."""
+        designers = []
+        try:
+            # Look for navigation links with designer names
+            nav_links = self.driver.find_elements(By.CLASS_NAME, SELECTORS["navigation_link"])
+            
+            for link in nav_links:
+                try:
+                    url = link.get_attribute("href")
+                    # Only include runway designer URLs
+                    if url and "/fashion-shows/" in url and "/article/" not in url:
+                        name = link.text.strip()
+                        # Skip "See More" type links and empty names
+                        if name and not any(word in name.upper() for word in ["MORE", "SEE ALL", "VIEW"]):
+                            designer_data = {"name": name, "url": url}
+                            designers.append(designer_data)
+                            self.logger.info(f"Found designer from navigation: {name}")
+                except Exception as e:
+                    self.logger.debug(f"Error processing nav link: {str(e)}")
+                    continue
+                    
+            return designers
+        except Exception as e:
+            self.logger.warning(f"Error getting designers from navigation: {str(e)}")
+            return []
 
     def _get_designer_items(self) -> List:
-        """Get designer item elements."""
+        """Get designer item elements from summary items (fallback method)."""
         designer_items = self.driver.find_elements(By.CLASS_NAME, SELECTORS["designer_item"])
 
         if not designer_items:
-            raise ElementNotFoundError("No designer items found")
+            self.logger.warning("No designer items found in summary")
+            return []
 
         return designer_items
 
@@ -54,7 +97,7 @@ class VogueDesignersHandler:
         for item in designer_items:
             try:
                 designer_data = self._extract_designer_data(item)
-                if designer_data:
+                if designer_data and "/article/" not in designer_data["url"]:
                     designers.append(designer_data)
             except NoSuchElementException as e:
                 self.logger.warning(f"Error processing designer item: {str(e)}")
@@ -63,7 +106,18 @@ class VogueDesignersHandler:
 
     def _extract_designer_data(self, item) -> Dict[str, str]:
         """Extract designer data from item element."""
-        link = item.find_element(By.CLASS_NAME, SELECTORS["designer_link"])
-        designer_data = {"name": link.text.strip(), "url": link.get_attribute("href")}
-        self.logger.info(f"Found designer: {designer_data['name']}")
-        return designer_data
+        try:
+            link = item.find_element(By.CLASS_NAME, SELECTORS["designer_link"])
+            name = link.text.strip()
+            url = link.get_attribute("href")
+            
+            # Filter out articles and non-designer content
+            if not name or "/article/" in url or any(word in name.upper() for word in ["MORE FROM", "SEE MORE"]):
+                return None
+                
+            designer_data = {"name": name, "url": url}
+            self.logger.info(f"Found designer: {name}")
+            return designer_data
+        except Exception as e:
+            self.logger.debug(f"Error extracting designer data: {str(e)}")
+            return None

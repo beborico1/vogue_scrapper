@@ -314,7 +314,12 @@ class VogueRunwayScraper:
 
                 # Save all season metadata
                 for season in seasons:
-                    if not any(word in season["season"] for word in ["MORE FROM", "SEE MORE"]):
+                    # Additional filter to avoid non-fashion show/article pages
+                    if not any(word in season["season"] for word in ["MORE FROM", "SEE MORE", "ARTICLE", "BLOG"]):
+                        # Skip URLs that appear to be articles
+                        if "/article/" in season["url"]:
+                            self.logger.info(f"Skipping article URL: {season['url']}")
+                            continue
                         self.storage.update_data(season_data=season)
 
             # Process seasons from checkpoint

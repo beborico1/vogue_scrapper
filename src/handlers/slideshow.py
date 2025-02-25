@@ -1,7 +1,9 @@
 """Enhanced slideshow scraper with progress tracking."""
 
+import json
 from typing import List, Dict, Optional
 import time
+from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -60,9 +62,9 @@ class VogueSlideshowScraper:
                         # Update progress after each successful look
                         progress_tracker.update_look_progress(season_index, designer_index)
 
-                        # Print progress summary every 5 looks
+                        # Log progress summary every 5 looks
                         if current_look % 5 == 0:
-                            progress_tracker.print_progress_summary()
+                            self.logger.info(f"Processing progress: {current_look}/{total_looks} looks")
 
                 # Move to next look if not at end
                 if current_look < total_looks:
@@ -74,7 +76,8 @@ class VogueSlideshowScraper:
 
             # Final progress update
             progress_tracker.update_progress(force_save=True)
-            progress_tracker.print_progress_summary()
+            # Log final progress
+            self.logger.info(f"Completed all {total_looks} looks for this designer")
             return True
 
         except Exception as e:
@@ -86,36 +89,74 @@ class VogueSlideshowScraper:
     ) -> bool:
         """Store the extracted look data and mark as completed."""
         try:
-            # Add completed flag to look data
-            look_data = {
-                "season_index": season_index,
-                "designer_index": designer_index,
-                "look_number": look_number,
-                "images": images,
-                "completed": True,  # Mark look as completed
-            }
-
-            success = self.storage.update_look_data(
-                season_index=season_index,
-                designer_index=designer_index,
-                look_number=look_number,
-                images=images,
-            )
-
-            if success:
-                # Update extracted_looks count
-                current_data = self.storage.read_data()
-                designer = current_data["seasons"][season_index]["designers"][designer_index]
-                designer["extracted_looks"] = sum(
-                    1 for look in designer.get("looks", []) if look.get("completed", False)
+            # Ensure we have valid images to store
+            if not images:
+                self.logger.warning(f"No images found for look {look_number}")
+                return False
+                
+            # Log what we're trying to store for debugging
+            self.logger.info(f"Storing {len(images)} images for look {look_number} (season: {season_index}, designer: {designer_index})")
+            
+            # Get current file path
+            json_file_path = self.storage.get_current_file()
+            if not json_file_path or not json_file_path.exists():
+                self.logger.error("No valid JSON file to update")
+                return False
+                
+            # Extract image URLs for emergency script
+            img_urls = [img.get("url") for img in images if img.get("url")]
+            
+            if not img_urls:
+                self.logger.error("No valid image URLs found")
+                return False
+            
+            # Use external script for absolute reliability
+            import subprocess
+            cmd = [
+                "python", 
+                "/Users/beborico/dev/voguescrapper/src/look_updater.py",
+                str(json_file_path),
+                str(season_index),
+                str(designer_index),
+                str(look_number)
+            ]
+            
+            # Add all image URLs to the command
+            cmd.extend(img_urls)
+            
+            # Execute the update script as a separate process
+            self.logger.info(f"Executing look updater script with {len(img_urls)} URLs")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                self.logger.info(f"Look updater script success: {result.stdout}")
+                return True
+            else:
+                self.logger.error(f"Look updater script failed: {result.stderr}")
+                
+                # Try the storage API as fallback
+                self.logger.warning("Falling back to storage API")
+                return self.storage.update_look_data(
+                    season_index=season_index,
+                    designer_index=designer_index,
+                    look_number=look_number,
+                    images=images
                 )
-                self.storage.write_data(current_data)
-
-            return success
 
         except Exception as e:
             self.logger.error(f"Error storing look {look_number} data: {str(e)}")
-            return False
+            
+            # One more try with the original storage method
+            try:
+                return self.storage.update_look_data(
+                    season_index=season_index,
+                    designer_index=designer_index,
+                    look_number=look_number,
+                    images=images
+                )
+            except Exception as fallback_error:
+                self.logger.error(f"Fallback storage also failed: {str(fallback_error)}")
+                return False
 
     def _navigate_to_slideshow(self, designer_url: str) -> bool:
         """Navigate to designer page and enter slideshow view."""
@@ -229,11 +270,24 @@ class VogueSlideshowScraper:
             # Ensure we're getting the high-res version
             if "assets.vogue.com" in img_url:
                 img_url = img_url.replace("w_320", "w_1920")
-
+                
+                alt_text = img.get_attribute("alt") or f"Look {look_number}"
+                
+                # Determine image type based on alt text
+                img_type = "front"  # Default type
+                alt_lower = alt_text.lower()
+                if "back" in alt_lower:
+                    img_type = "back"
+                elif "detail" in alt_lower:
+                    img_type = "detail"
+                
+                # Include all required fields for the look storage
                 return {
                     "url": img_url,
                     "look_number": str(look_number),
-                    "alt_text": img.get_attribute("alt") or f"Look {look_number}",
+                    "alt_text": alt_text,
+                    "type": img_type,
+                    "timestamp": datetime.now().isoformat()
                 }
 
             return None
@@ -267,16 +321,3 @@ class VogueSlideshowScraper:
             self.logger.error(f"Error navigating to next look: {str(e)}")
             return False
 
-    def _store_look_data(
-        self, season_index: int, designer_index: int, look_number: int, images: List[Dict[str, str]]
-    ) -> None:
-        """Store the extracted look data."""
-        try:
-            self.storage.update_look_data(
-                season_index=season_index,
-                designer_index=designer_index,
-                look_number=look_number,
-                images=images,
-            )
-        except Exception as e:
-            self.logger.error(f"Error storing look {look_number} data: {str(e)}")

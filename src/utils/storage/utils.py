@@ -8,7 +8,7 @@ including file generation, data type determination, and file operations.
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 
 from src.exceptions.errors import FileOperationError
 from src.config.settings import STORAGE, config
@@ -91,10 +91,138 @@ def write_json_file(file_path: Union[str, Path], data: Dict[str, Any]) -> None:
         >>> write_json_file('data/storage.json', {'key': 'value'})
     """
     try:
+        # Simple direct write approach for reliability
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-    except IOError as e:
-        raise FileOperationError(f"Error writing JSON file {file_path}: {str(e)}")
+            # Force flush to disk
+            f.flush()
+            
+        # Simple verification
+        print(f"JSON file written: {file_path}")
+    except Exception as e:
+        error_msg = f"Error writing JSON file {file_path}: {str(e)}"
+        print(f"ERROR: {error_msg}")
+        raise FileOperationError(error_msg)
+        
+        
+def directly_add_look(json_file_path: Union[str, Path], 
+                      season_index: int, 
+                      designer_index: int, 
+                      look_number: int, 
+                      images: List[Dict[str, str]]) -> bool:
+    """
+    Directly add a look to the JSON file, bypassing all storage handlers.
+    
+    Args:
+        json_file_path: Path to the JSON file
+        season_index: Index of the season
+        designer_index: Index of the designer
+        look_number: Look number
+        images: List of image data
+        
+    Returns:
+        bool: True if successful
+    """
+    import os
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"Directly adding look {look_number} to {json_file_path}")
+    
+    try:
+        if not os.path.exists(json_file_path):
+            logger.error(f"JSON file not found: {json_file_path}")
+            return False
+            
+        # Add timestamp to images
+        timestamp = datetime.now().isoformat()
+        for image in images:
+            if "timestamp" not in image:
+                image["timestamp"] = timestamp
+            if "type" not in image:
+                # Default to front
+                image["type"] = "front"
+                # Check alt text
+                alt_text = image.get("alt_text", "").lower()
+                if "back" in alt_text:
+                    image["type"] = "back"
+                elif "detail" in alt_text:
+                    image["type"] = "detail"
+                    
+        # Read current data
+        with open(json_file_path, 'r', encoding='utf-8') as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON in file {json_file_path}")
+                return False
+            
+        # Verify structure
+        if "seasons" not in data or len(data["seasons"]) <= season_index:
+            logger.error(f"Invalid season index: {season_index}")
+            return False
+            
+        if "designers" not in data["seasons"][season_index] or len(data["seasons"][season_index]["designers"]) <= designer_index:
+            logger.error(f"Invalid designer index: {designer_index}")
+            return False
+            
+        # Get designer
+        designer = data["seasons"][season_index]["designers"][designer_index]
+        
+        # Ensure looks array exists
+        if "looks" not in designer:
+            designer["looks"] = []
+            
+        # Check if look exists
+        look_exists = False
+        for look in designer["looks"]:
+            if str(look.get("look_number")) == str(look_number):
+                look_exists = True
+                # Add images to existing look
+                if "images" not in look:
+                    look["images"] = []
+                look["images"].extend(images)
+                look["completed"] = True
+                break
+                
+        # Create new look if it doesn't exist
+        if not look_exists:
+            designer["looks"].append({
+                "look_number": look_number,
+                "images": images,
+                "completed": True
+            })
+            
+        # Update designer stats
+        designer["extracted_looks"] = sum(1 for look in designer.get("looks", []) if look.get("completed", False))
+        if designer.get("total_looks", 0) > 0 and designer["extracted_looks"] >= designer.get("total_looks", 0):
+            designer["completed"] = True
+            
+        # Update metadata
+        data["metadata"]["last_updated"] = timestamp
+            
+        # Write updated data - simplified with direct approach
+        try:
+            with open(json_file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.flush()
+                
+            # Verify file was written
+            if not os.path.exists(json_file_path):
+                logger.error(f"File disappeared after write: {json_file_path}")
+                return False
+                
+            logger.info(f"Successfully added look {look_number} to {json_file_path}")
+            print(f"Added look {look_number} with {len(images)} images to JSON")
+            return True
+            
+        except Exception as write_error:
+            logger.error(f"Error writing file: {str(write_error)}")
+            return False
+        
+    except Exception as e:
+        logger.error(f"Error directly adding look: {str(e)}")
+        return False
 
 
 def ensure_directory_exists(directory: Union[str, Path]) -> None:

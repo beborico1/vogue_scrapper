@@ -48,7 +48,6 @@ class ProgressTracker:
                 "total_looks": 0,
                 "extracted_looks": 0,
                 "start_time": self.start_time.isoformat(),
-                "elapsed_time": "0:00:00",
                 "estimated_completion": "Unknown",
                 "completion_percentage": 0.0,
                 "extraction_rate": 0.0,
@@ -74,41 +73,60 @@ class ProgressTracker:
             data = self.storage.read_data()
             progress = data["metadata"]["overall_progress"]
 
-            # Calculate current metrics
+            # Calculate current metrics with care for each counter
             total_designers = 0
             completed_designers = 0
             total_looks = 0
             extracted_looks = 0
+            completed_seasons = 0
 
-            # Calculate from actual data
+            # Calculate from actual data with precise counting
             for season in data.get("seasons", []):
                 designers = season.get("designers", [])
-                total_designers += len(designers)
+                season_designers = len(designers)
+                total_designers += season_designers
+                
+                # Count designers with completed flag explicitly true
+                season_completed_designers = sum(1 for d in designers if d.get("completed") is True)
+                completed_designers += season_completed_designers
+                
+                # Update season completion count
+                season["completed_designers"] = season_completed_designers
+                
+                # Mark season as completed if all designers are completed
+                season["completed"] = (season_completed_designers >= season_designers) if season_designers > 0 else False
+                if season["completed"]:
+                    completed_seasons += 1
 
+                # Count looks
                 for designer in designers:
-                    total_looks += designer.get("total_looks", 0)
-                    current_extracted = self._count_designer_looks(designer)
-                    extracted_looks += current_extracted
-                    if self._is_designer_completed(designer):
-                        completed_designers += 1
+                    designer_total_looks = designer.get("total_looks", 0)
+                    total_looks += designer_total_looks
+                    
+                    # Count completed looks and update designer record
+                    designer_completed_looks = sum(1 for look in designer.get("looks", []) if look.get("completed", False))
+                    extracted_looks += designer_completed_looks
+                    
+                    # Update designer extracted_looks count
+                    designer["extracted_looks"] = designer_completed_looks
+                    
+                    # Update designer completion status
+                    designer["completed"] = (designer_completed_looks >= designer_total_looks) if designer_total_looks > 0 else False
 
-            # Update metrics
-            progress.update(
-                {
-                    "total_seasons": len(data.get("seasons", [])),
-                    "total_designers": total_designers,
-                    "completed_designers": completed_designers,
-                    "total_looks": total_looks,
-                    "extracted_looks": extracted_looks,
-                }
-            )
+            # Update metrics with accurate counts
+            progress.update({
+                "total_seasons": len(data.get("seasons", [])),
+                "completed_seasons": completed_seasons,
+                "total_designers": total_designers,
+                "completed_designers": completed_designers,
+                "total_looks": total_looks,
+                "extracted_looks": extracted_looks,
+            })
 
-            # Calculate time-based metrics
+            # Update timestamp
             current_time = datetime.now()
-            elapsed = current_time - self.start_time
-            progress["elapsed_time"] = str(timedelta(seconds=int(elapsed.total_seconds())))
 
-            # Calculate rate and completion percentage
+            # Calculate completion percentage
             if total_looks > 0:
                 progress["completion_percentage"] = round((extracted_looks / total_looks) * 100, 2)
 
@@ -129,15 +147,17 @@ class ProgressTracker:
                     self.last_extraction_time = current_time
                     self.previous_extracted_count = extracted_looks
 
-            # Save updates
+            # Save updates if requested
             data["metadata"]["last_updated"] = current_time.isoformat()
-            self.storage.write_data(data)
+            if force_save:
+                self.storage.write_data(data)
 
-            # Log progress
+            # Log progress with detailed counts
             self.logger.info(
-                f"Progress: {extracted_looks}/{total_looks} looks "
+                f"Overall Progress: {extracted_looks}/{total_looks} looks "
                 f"({progress['completion_percentage']}%) - "
-                f"Rate: {progress['extraction_rate']} looks/min"
+                f"Designers: {completed_designers}/{total_designers} completed - "
+                f"Seasons: {completed_seasons}/{len(data.get('seasons', []))} completed"
             )
 
         except Exception as e:
@@ -162,19 +182,36 @@ class ProgressTracker:
     def _is_designer_completed(self, designer: Dict[str, Any]) -> bool:
         """Check if a designer is completed."""
         try:
+            # First check if designer has an explicit completed flag set
+            if designer.get("completed") is True:
+                return True
+                
             total_looks = designer.get("total_looks", 0)
             if total_looks == 0:
                 return False
+                
+            # Count completed looks
             completed_looks = self._count_designer_looks(designer)
+            
+            # Strict equality check
             return completed_looks >= total_looks
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Error checking designer completion: {str(e)}")
             return False
 
     def update_look_progress(self, season_index: int, designer_index: int) -> None:
         """Update progress after processing a look."""
         try:
             data = self.storage.read_data()
+            
+            # Make sure indexes are valid
+            if (season_index >= len(data["seasons"]) or
+                designer_index >= len(data["seasons"][season_index]["designers"])):
+                self.logger.error(f"Invalid indices: season_index={season_index}, designer_index={designer_index}")
+                return
+                
             designer = data["seasons"][season_index]["designers"][designer_index]
+            season = data["seasons"][season_index]
 
             # Count and update completed looks
             completed_looks = self._count_designer_looks(designer)
@@ -182,16 +219,24 @@ class ProgressTracker:
 
             # Update completion status
             total_looks = designer.get("total_looks", 0)
-            designer["completed"] = self._is_designer_completed(designer)
-
+            
+            # Strict completion check
+            designer["completed"] = (completed_looks >= total_looks) if total_looks > 0 else False
+            
+            # Update season completion counts
+            season["completed_designers"] = sum(1 for d in season["designers"] if d.get("completed", False))
+            
             # Save updates and update overall progress
             self.storage.write_data(data)
-            self.update_progress()
+            self.update_progress(force_save=False)  # Already saved above
 
             # Log designer progress
             self.logger.info(
-                f"Designer progress: {completed_looks}/{total_looks} looks "
-                f"({'completed' if designer['completed'] else 'in progress'})"
+                f"Designer: {designer.get('name', 'Unknown')} - "
+                f"Progress: {completed_looks}/{total_looks} looks "
+                f"({'completed' if designer['completed'] else 'in progress'}) - "
+                f"Season {season['season']} {season['year']}: "
+                f"{season['completed_designers']}/{len(season['designers'])} designers completed"
             )
 
         except Exception as e:

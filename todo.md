@@ -40,6 +40,14 @@ Make a searcher using CLIP
 
 ## Done
 
+It is still going to https://www.vogue.com/article/ which is undesired articles should not be webscraped, example: 2025-02-24 18:40:58,318 - INFO - Starting session for designer: The Winter Escape Wardrobe: 5 Resort Trends to Shop Now
+
+when it goes to a season it should take the designers from:
+
+<a role="link" class="NavigationInternalLink-cWEaeo kHWqlu grouped-navigation__link link--secondary navigation__link" href="/fashion-shows/fall-2024-ready-to-wear/talia-byre" data-testid="navigation__internal-link">Talia Byre</a>
+
+Because where it is currently taking the designers from it has show more button that we are not taking into account
+
 Run on raspberry pi
 
 Handle Collections that do not have a View Slideshow button and just looks like that

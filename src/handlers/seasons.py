@@ -85,7 +85,14 @@ class VogueSeasonsHandler:
             url = link.get_attribute("href")
 
             # Only include URLs that start with the fashion shows path
-            if not url.startswith(f"{self.base_url}/fashion-shows/"):
+            # Exclude article URLs and ensure it's a proper runway season path
+            if not url.startswith(f"{self.base_url}/fashion-shows/") or "/article/" in url:
+                continue
+                
+            # Check if it's a proper runway season URL pattern with season and year
+            # Common runway season patterns: spring-YYYY-ready-to-wear, fall-YYYY-menswear, etc.
+            if not any(pattern in url for pattern in ["-ready-to-wear", "-menswear", "-couture", "-bridal", "-resort"]):
+                self.logger.debug(f"Skipping non-runway URL: {url}")
                 continue
 
             season_data = {"year": year, "season": link.text.strip(), "url": url}
