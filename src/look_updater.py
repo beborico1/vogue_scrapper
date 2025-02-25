@@ -48,6 +48,11 @@ def emergency_add_look(json_path, season_idx, designer_idx, look_num, img_urls):
     if "looks" not in designer:
         designer["looks"] = []
     
+    # Make sure total_looks is set and at least as high as current look
+    if "total_looks" not in designer or designer["total_looks"] < look_num:
+        designer["total_looks"] = max(look_num, designer.get("total_looks", 0))
+        print(f"Updated total_looks to {designer['total_looks']}")
+    
     # Create image objects
     timestamp = datetime.now().isoformat()
     images = []
@@ -78,8 +83,38 @@ def emergency_add_look(json_path, season_idx, designer_idx, look_num, img_urls):
             "completed": True
         })
     
-    # Update counts
-    designer["extracted_looks"] = sum(1 for look in designer["looks"] if look.get("completed", False))
+    # Count and update extracted_looks
+    completed_count = sum(1 for look in designer["looks"] if look.get("completed", False) and "images" in look and look["images"])
+    designer["extracted_looks"] = completed_count
+    
+    # Update completion status
+    designer["completed"] = (designer["extracted_looks"] >= designer["total_looks"]) if designer.get("total_looks", 0) > 0 else False
+    
+    # Update season completion counts
+    season["completed_designers"] = sum(1 for d in season["designers"] if d.get("completed", False))
+    season["completed"] = (season["completed_designers"] >= len(season["designers"])) if len(season["designers"]) > 0 else False
+    
+    # Update metadata progress
+    if "metadata" in data and "overall_progress" in data["metadata"]:
+        progress = data["metadata"]["overall_progress"]
+        
+        # Count totals from all seasons/designers
+        total_looks = 0
+        extracted_looks = 0
+        for s in data["seasons"]:
+            for d in s.get("designers", []):
+                total_looks += d.get("total_looks", 0)
+                extracted_looks += d.get("extracted_looks", 0)
+        
+        # Update progress
+        progress["total_looks"] = total_looks
+        progress["extracted_looks"] = extracted_looks
+        
+        # Calculate completion percentage
+        if total_looks > 0:
+            progress["completion_percentage"] = round((extracted_looks / total_looks) * 100, 2)
+        
+        print(f"Updated progress: {extracted_looks}/{total_looks} looks ({progress.get('completion_percentage', 0)}%)")
     
     # Write file as simply as possible
     try:
