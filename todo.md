@@ -6,6 +6,8 @@ Please provide with the final complete code for _ with your suggested changes
 
 ## Must
 
+PARALLELIZE
+
 The elapsed_time is also badonkers it should just be created_at last_update
 
 2025-02-20 19:27:44,321 - ERROR - Error scraping designer slideshow: 'ProgressTracker' object has no attribute 'print_progress_summary'

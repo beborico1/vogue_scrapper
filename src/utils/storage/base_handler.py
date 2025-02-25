@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from src.utils.storage.utils import (
     generate_filename,
@@ -53,7 +53,7 @@ class BaseStorageHandler:
         """Read the current data file.
 
         Returns:
-            Dictionary containing the file data
+            Dictionary containing the file data with seasons sorted chronologically
 
         Raises:
             FileOperationError: If file cannot be read
@@ -61,7 +61,56 @@ class BaseStorageHandler:
         """
         if not self.current_file:
             raise StorageError("No file initialized. Call initialize_file() first.")
-        return read_json_file(self.current_file)
+            
+        data = read_json_file(self.current_file)
+        
+        # Sort seasons chronologically if they exist
+        if "seasons" in data and isinstance(data["seasons"], list):
+            data["seasons"] = self._sort_seasons_chronologically(data["seasons"])
+            
+        return data
+        
+    def _sort_seasons_chronologically(self, seasons: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Sort seasons chronologically by year and season.
+        
+        Args:
+            seasons: List of season dictionaries
+            
+        Returns:
+            List of sorted season dictionaries
+        """
+        def season_sort_key(season):
+            # Helper function to convert season name to a numeric value for sorting
+            season_order = {
+                "spring": 0,
+                "summer": 1,
+                "fall": 2, 
+                "autumn": 2,  # Treat 'autumn' same as 'fall'
+                "winter": 3,
+                "resort": 4,
+                "pre-fall": 5,
+                "pre-spring": 6,
+                "couture": 7
+            }
+            
+            season_name = season.get("season", "").lower()
+            year = season.get("year", "0")
+            
+            # Extract season from complex names (e.g., "Fall Ready-to-Wear" -> "fall")
+            for key in season_order.keys():
+                if key in season_name:
+                    season_name = key
+                    break
+            
+            # Get the numeric order or default to 99 (end of sort)
+            season_num = season_order.get(season_name, 99)
+            
+            # Return a tuple of (year, season_number) for sorting
+            return (int(year) if year.isdigit() else 0, season_num)
+        
+        # Create a copy to avoid modifying the original
+        sorted_seasons = sorted(seasons, key=season_sort_key)
+        return sorted_seasons
 
     def write_data(self, data: Dict[str, Any]) -> None:
         """Write data to the current file.

@@ -8,16 +8,16 @@ from datetime import datetime
 
 
 def setup_logger():
-    """
-    Configure and initialize logging with custom format and file output.
-
-    Returns:
-        logging.Logger: Configured logger instance
-    """
+    """Configure and initialize logging with custom format and file output."""
     log_filename = f'logs/vogue_scraper_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
 
     # Create logger
     logger = logging.getLogger("vogue_scraper")
+    
+    # If the logger already has handlers, return it to avoid duplicate logging
+    if logger.handlers:
+        return logger
+        
     logger.setLevel(logging.INFO)
 
     # Create file handler

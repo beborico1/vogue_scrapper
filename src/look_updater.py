@@ -87,6 +87,9 @@ def emergency_add_look(json_path, season_idx, designer_idx, look_num, img_urls):
     completed_count = sum(1 for look in designer["looks"] if look.get("completed", False) and "images" in look and look["images"])
     designer["extracted_looks"] = completed_count
     
+    # Log the extraction counts
+    print(f"Extraction count for {designer.get('name', 'Unknown')}: {completed_count}/{designer.get('total_looks', 0)} completed looks")
+    
     # Update completion status
     designer["completed"] = (designer["extracted_looks"] >= designer["total_looks"]) if designer.get("total_looks", 0) > 0 else False
     

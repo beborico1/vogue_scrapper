@@ -93,13 +93,33 @@ python main.py
 To resume scraping from a previous checkpoint:
 
 ```bash
-python main.py --checkpoint vogue_runway_[timestamp].json
+python main.py --checkpoint vogue_data_[timestamp].json
 ```
 
 Example:
 
 ```bash
-python main.py --checkpoint vogue_runway_20250120_191830.json
+python main.py --checkpoint vogue_data_20250120_191830.json
+```
+
+### Using Redis Storage
+
+To use Redis as the storage backend:
+
+```bash
+python main.py --storage redis
+```
+
+You can also specify Redis connection parameters:
+
+```bash
+python main.py --storage redis --redis-host localhost --redis-port 6379 --redis-db 0
+```
+
+To resume from a Redis checkpoint:
+
+```bash
+python main.py --storage redis --checkpoint 20250120_191830
 ```
 
 The scraper will:
@@ -112,15 +132,31 @@ The scraper will:
 
 ## Data Storage
 
+The scraper supports two storage backends:
+
+### JSON Storage (Default)
+
 Data is stored in JSON format in the `data` directory with timestamp-based filenames:
 
-- Filename format: `vogue_runway_YYYYMMDD_HHMMSS.json`
-- Example: `vogue_runway_20250120_191830.json`
+- Filename format: `vogue_data_YYYYMMDD_HHMMSS.json`
+- Example: `vogue_data_20250120_191830.json`
 
 The JSON structure follows:
 
 ```json
 {
+  "metadata": {
+    "created_at": "2025-01-20T19:18:30.123456",
+    "last_updated": "2025-01-20T20:45:12.654321",
+    "overall_progress": {
+      "total_seasons": 10,
+      "completed_seasons": 5,
+      "total_designers": 150,
+      "completed_designers": 75,
+      "total_looks": 3000,
+      "extracted_looks": 1500
+    }
+  },
   "seasons": [
     {
       "season": "Spring",
@@ -138,6 +174,23 @@ The JSON structure follows:
   ]
 }
 ```
+
+### Redis Storage
+
+For improved performance and reliability, the scraper also supports Redis as a storage backend:
+
+- Data is stored in Redis with structured keys
+- Checkpoint IDs are timestamp-based: `20250120_191830`
+- Supports real-time querying and monitoring
+- Better handles concurrent operations
+
+Redis keys follow these patterns:
+- `vogue:metadata` - Overall metadata
+- `vogue:seasons` - Set of all season identifiers
+- `vogue:designers` - Set of all designer identifiers
+- `vogue:season:{season}:{year}` - Season data
+- `vogue:designer:{url}` - Designer data
+- `vogue:look:{designer_url}:{look_number}` - Look data
 
 ## Logging
 

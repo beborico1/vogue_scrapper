@@ -1,4 +1,3 @@
-# utils/storage/redis_storage.py
 """Redis-based storage handler for Vogue scraper.
 
 This module provides a Redis implementation for storing runway data,
@@ -18,7 +17,6 @@ from src.utils.storage.models import (
 from src.exceptions.errors import StorageError
 
 
-
 class RedisStorageHandler:
     """Redis-based storage handler for runway data."""
 
@@ -32,15 +30,7 @@ class RedisStorageHandler:
     
     def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0, 
                  password: Optional[str] = None, checkpoint_id: Optional[str] = None):
-        """Initialize Redis storage handler.
-        
-        Args:
-            host: Redis host
-            port: Redis port
-            db: Redis database number
-            password: Optional Redis password
-            checkpoint_id: Optional checkpoint ID to restore state
-        """
+        """Initialize Redis storage handler."""
         self.logger = logging.getLogger(__name__)
         self._current_temp_file = None
         
@@ -81,11 +71,7 @@ class RedisStorageHandler:
         self.logger.info("Initialized Redis metadata")
         
     def initialize_file(self) -> str:
-        """Initialize Redis storage (for compatibility with JSON storage interface).
-        
-        Returns:
-            str: Instance ID for the initialized storage
-        """
+        """Initialize Redis storage (for compatibility with JSON storage interface)."""
         # Check if metadata exists, if not initialize it
         if not self.redis.exists(self.METADATA_KEY):
             self._initialize_metadata()
@@ -94,14 +80,7 @@ class RedisStorageHandler:
         return self.instance_id
     
     def add_season(self, season_data: Dict[str, Any]) -> bool:
-        """Add or update season data.
-        
-        Args:
-            season_data: Season data dictionary
-            
-        Returns:
-            bool: True if successful
-        """
+        """Add or update season data."""
         try:
             # Validate required fields
             if not all(key in season_data for key in ["season", "year", "url"]):
@@ -124,7 +103,6 @@ class RedisStorageHandler:
                 
                 # Update fields while preserving designers
                 season.url = season_data["url"]
-                # Any other fields to update
             else:
                 # Create new season
                 season = Season(
@@ -150,16 +128,7 @@ class RedisStorageHandler:
             return False
     
     def add_designer(self, designer_data: Dict[str, Any], season: str, year: str) -> bool:
-        """Add or update designer data.
-        
-        Args:
-            designer_data: Designer data dictionary
-            season: Season name
-            year: Season year
-            
-        Returns:
-            bool: True if successful
-        """
+        """Add or update designer data."""
         try:
             # Validate required fields
             if not all(key in designer_data for key in ["name", "url"]):
@@ -246,16 +215,7 @@ class RedisStorageHandler:
             return False
     
     def add_look(self, designer_url: str, look_number: int, images: List[Dict[str, Any]]) -> bool:
-        """Add or update look data.
-        
-        Args:
-            designer_url: Designer URL identifier
-            look_number: Look number
-            images: List of image data dictionaries
-            
-        Returns:
-            bool: True if successful
-        """
+        """Add or update look data."""
         try:
             # Generate keys
             designer_key = self.DESIGNER_KEY_PATTERN.format(url=designer_url)
@@ -312,8 +272,18 @@ class RedisStorageHandler:
                 self.logger.warning(f"No valid images found for look {look_number}")
                 return False
             
-            # Add new images to look
+            # Current problematic code:
             look.images.extend(processed_images)
+            look.completed = True
+
+            # Replace with this:
+            # Check for duplicate images before adding
+            if look_exists:
+                # Replace images entirely to avoid duplicates
+                look.images = processed_images
+            else:
+                # For new looks, simply set the images
+                look.images = processed_images
             look.completed = True
             
             # Save look data
@@ -382,15 +352,7 @@ class RedisStorageHandler:
             return False
     
     def get_season(self, season: str, year: str) -> Optional[Dict[str, Any]]:
-        """Get season data by season name and year.
-        
-        Args:
-            season: Season name
-            year: Season year
-            
-        Returns:
-            Optional[Dict[str, Any]]: Season data or None if not found
-        """
+        """Get season data by season name and year."""
         try:
             season_key = self.SEASON_KEY_PATTERN.format(season=season, year=year)
             
@@ -405,14 +367,7 @@ class RedisStorageHandler:
             return None
     
     def get_designer(self, designer_url: str) -> Optional[Dict[str, Any]]:
-        """Get designer data by URL.
-        
-        Args:
-            designer_url: Designer URL identifier
-            
-        Returns:
-            Optional[Dict[str, Any]]: Designer data or None if not found
-        """
+        """Get designer data by URL."""
         try:
             designer_key = self.DESIGNER_KEY_PATTERN.format(url=designer_url)
             
@@ -427,15 +382,7 @@ class RedisStorageHandler:
             return None
     
     def get_look(self, designer_url: str, look_number: int) -> Optional[Dict[str, Any]]:
-        """Get look data by designer URL and look number.
-        
-        Args:
-            designer_url: Designer URL identifier
-            look_number: Look number
-            
-        Returns:
-            Optional[Dict[str, Any]]: Look data or None if not found
-        """
+        """Get look data by designer URL and look number."""
         try:
             look_key = self.LOOK_KEY_PATTERN.format(
                 designer_url=designer_url,
@@ -453,11 +400,7 @@ class RedisStorageHandler:
             return None
     
     def get_all_seasons(self) -> List[Dict[str, Any]]:
-        """Get all seasons data.
-        
-        Returns:
-            List[Dict[str, Any]]: List of season data dictionaries sorted chronologically
-        """
+        """Get all seasons data."""
         try:
             seasons = []
             
@@ -484,14 +427,7 @@ class RedisStorageHandler:
             return []
             
     def _sort_seasons_chronologically(self, seasons: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Sort seasons chronologically by year and season.
-        
-        Args:
-            seasons: List of season dictionaries
-            
-        Returns:
-            List of sorted season dictionaries
-        """
+        """Sort seasons chronologically by year and season."""
         def season_sort_key(season):
             # Helper function to convert season name to a numeric value for sorting
             season_order = {
@@ -519,18 +455,13 @@ class RedisStorageHandler:
             season_num = season_order.get(season_name, 99)
             
             # Return a tuple of (year, season_number) for sorting
-            # Sort by year ascending (oldest first)
             return (int(year) if year.isdigit() else 0, season_num)
             
         # Sort seasons by year and season (oldest first)
         return sorted(seasons, key=season_sort_key)
     
     def get_metadata(self) -> Dict[str, Any]:
-        """Get metadata.
-        
-        Returns:
-            Dict[str, Any]: Metadata dictionary
-        """
+        """Get metadata."""
         try:
             if not self.redis.exists(self.METADATA_KEY):
                 self._initialize_metadata()
@@ -543,20 +474,7 @@ class RedisStorageHandler:
             return {}
     
     def is_season_completed(self, season_data, year=None) -> bool:
-        """Check if a season has been completely processed.
-        
-        This method supports two calling conventions:
-        1. is_season_completed({"season": "Spring", "year": "2025"})
-        2. is_season_completed("Spring", "2025")
-        
-        Args:
-            season_data: Either a dictionary containing 'season' and 'year' keys,
-                        or a string with season name
-            year: Optional year string, required if season_data is a string
-            
-        Returns:
-            bool: True if season completed
-        """
+        """Check if a season has been completely processed."""
         try:
             # Handle both calling conventions for compatibility
             if isinstance(season_data, dict):
@@ -582,14 +500,7 @@ class RedisStorageHandler:
             return False
     
     def is_designer_completed(self, designer_url: str) -> bool:
-        """Check if a designer's show has been completely processed.
-        
-        Args:
-            designer_url: Designer URL identifier
-            
-        Returns:
-            bool: True if designer completed
-        """
+        """Check if a designer's show has been completely processed."""
         try:
             designer_data = self.get_designer(designer_url)
             if not designer_data:
@@ -625,11 +536,17 @@ class RedisStorageHandler:
             total_looks = 0
             extracted_looks = 0
             
+            # Add detailed logging of season count
+            designer_names = []
+            self.logger.info(f"Progress update - Found {designers_count} designers in Redis.")
+            
             # Count completed designers and looks
             for designer_url in self.redis.smembers(self.ALL_DESIGNERS_KEY):
                 designer_key = self.DESIGNER_KEY_PATTERN.format(url=designer_url)
                 if self.redis.exists(designer_key):
                     designer_data = json.loads(self.redis.get(designer_key))
+                    designer_name = designer_data.get("name", "Unknown")
+                    designer_names.append(designer_name)
                     
                     # Count completed designer
                     if designer_data.get("completed", False):
@@ -639,21 +556,23 @@ class RedisStorageHandler:
                     design_total_looks = designer_data.get("total_looks", 0)
                     total_looks += design_total_looks
                     
-                    # Count extracted/completed looks directly from look data
-                    # This is more reliable than using the extracted_looks counter
-                    completed_look_count = 0
-                    for look in designer_data.get("looks", []):
-                        if look.get("completed", False) and "images" in look and look["images"]:
-                            completed_look_count += 1
-                    
-                    # Update the designer's extracted_looks in Redis
+                    # Convert designer data to Designer object
                     designer_obj = Designer.from_dict(designer_data)
+                    
+                    # Count completed looks properly using the actual Designer object
+                    completed_look_count = sum(1 for look in designer_obj.looks if look.completed and look.images)
+                    
+                    # Log both counts for comparison
+                    self.logger.info(f"Designer {designer_name}: extracted_looks={designer_data.get('extracted_looks', 0)}, counted_looks={completed_look_count}")
+                    
+                    # Update the designer's extracted_looks in Redis if different
                     if designer_obj.extracted_looks != completed_look_count:
-                        self.logger.info(f"Correcting extracted_looks for {designer_data.get('name')}: {designer_obj.extracted_looks} -> {completed_look_count}")
+                        self.logger.info(f"Updating extracted_looks for {designer_name}: {designer_obj.extracted_looks} -> {completed_look_count}")
                         designer_obj.extracted_looks = completed_look_count
                         designer_obj.completed = completed_look_count >= design_total_looks
                         self.redis.set(designer_key, json.dumps(designer_obj.to_dict()))
                     
+                    # Add to overall count
                     extracted_looks += completed_look_count
             
             # Calculate completion percentage
@@ -661,8 +580,9 @@ class RedisStorageHandler:
             if total_looks > 0:
                 completion_percentage = round((extracted_looks / total_looks) * 100, 2)
             
-            # Log the counts we found
+            # Log the counts we found and designer names
             self.logger.info(f"Progress update - Total looks: {total_looks}, Extracted looks: {extracted_looks}, Completion: {completion_percentage}%")
+            self.logger.info(f"Designers found: {', '.join(designer_names[:5])}{'...' if len(designer_names) > 5 else ''}")
             
             # Get existing progress values to preserve rate and time estimates
             current_progress = metadata.overall_progress
@@ -684,111 +604,19 @@ class RedisStorageHandler:
             # Save updated metadata
             self.redis.set(self.METADATA_KEY, json.dumps(metadata.to_dict()))
             
+            # Log the updated metadata for debugging
+            self.logger.info(f"Updated metadata progress: {metadata.overall_progress.extracted_looks}/{metadata.overall_progress.total_looks} looks")
+            
         except Exception as e:
             self.logger.error(f"Error updating metadata progress: {str(e)}")
     
-    def export_to_json(self, file_path: str) -> bool:
-        """Export Redis data to JSON file.
-        
-        Args:
-            file_path: Path to export JSON file
-            
-        Returns:
-            bool: True if export successful
-        """
-        try:
-            # Build complete data structure
-            data = {
-                "metadata": self.get_metadata(),
-                "seasons": self.get_all_seasons()
-            }
-            
-            # Write to file
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-            
-            self.logger.info(f"Exported Redis data to {file_path}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error exporting to JSON: {str(e)}")
-            return False
-    
-    def import_from_json(self, file_path: str) -> bool:
-        """Import data from JSON file to Redis.
-        
-        Args:
-            file_path: Path to JSON file
-            
-        Returns:
-            bool: True if import successful
-        """
-        try:
-            # Read JSON file
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # Validate data structure
-            if not all(key in data for key in ["metadata", "seasons"]):
-                self.logger.error("Invalid JSON structure")
-                return False
-            
-            # Clear existing data
-            self._clear_all_data()
-            
-            # Import metadata
-            self.redis.set(self.METADATA_KEY, json.dumps(data["metadata"]))
-            
-            # Import seasons
-            for season_data in data["seasons"]:
-                # Add season
-                self.add_season(season_data)
-                
-                # Add designers
-                for designer_data in season_data.get("designers", []):
-                    self.add_designer(
-                        designer_data, 
-                        season_data["season"], 
-                        season_data["year"]
-                    )
-                    
-                    # Add looks
-                    for look_data in designer_data.get("looks", []):
-                        if "images" in look_data:
-                            self.add_look(
-                                designer_data["url"],
-                                look_data["look_number"],
-                                look_data["images"]
-                            )
-            
-            self.logger.info(f"Imported data from {file_path}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error importing from JSON: {str(e)}")
-            return False
-    
-    def _clear_all_data(self) -> None:
-        """Clear all Redis data for this application."""
-        try:
-            # Get all keys with the prefix vogue:
-            keys = self.redis.keys("vogue:*")
-            
-            if keys:
-                self.redis.delete(*keys)
-                
-            self.logger.info("Cleared all Redis data")
-            
-        except Exception as e:
-            self.logger.error(f"Error clearing Redis data: {str(e)}")
-    
     def get_status(self) -> Dict[str, Any]:
-        """Get current scraping status and progress.
-        
-        Returns:
-            Dict[str, Any]: Current status information
-        """
+        """Get current scraping status and progress."""
         try:
+            # Force an update of progress metrics to ensure data is current
+            self._update_metadata_progress()
+            
+            # Get the updated metadata
             metadata = self.get_metadata()
             progress = metadata.get("overall_progress", {})
             
@@ -802,7 +630,8 @@ class RedisStorageHandler:
             if "start_time" not in progress:
                 progress["start_time"] = datetime.now().isoformat()
             
-            return {
+            # Create complete status object with all progress fields
+            status = {
                 "total_seasons": progress.get("total_seasons", 0),
                 "completed_seasons": progress.get("completed_seasons", 0),
                 "total_designers": progress.get("total_designers", 0),
@@ -814,6 +643,11 @@ class RedisStorageHandler:
                 "instance_id": self.instance_id,
                 "progress": progress,  # For VogueRunwayScraper compatibility
             }
+            
+            # Log status for debugging
+            self.logger.info(f"Status requested - Progress: {status['extracted_looks']}/{status['total_looks']} looks ({status['completion_percentage']}%)")
+            
+            return status
             
         except Exception as e:
             self.logger.error(f"Error getting status: {str(e)}")
@@ -829,11 +663,7 @@ class RedisStorageHandler:
             self.logger.error(f"Error saving progress: {str(e)}")
     
     def validate(self) -> Dict[str, Any]:
-        """Validate storage state (compatibility method).
-        
-        Returns:
-            Dict[str, Any]: Validation status
-        """
+        """Validate storage state (compatibility method)."""
         try:
             # Check if metadata exists
             if not self.redis.exists(self.METADATA_KEY):
@@ -848,11 +678,7 @@ class RedisStorageHandler:
             return {"valid": False, "error": str(e)}
     
     def read_data(self) -> Dict[str, Any]:
-        """Read current data (compatibility method).
-        
-        Returns:
-            Dict[str, Any]: Complete data structure
-        """
+        """Read current data (compatibility method)."""
         try:
             return {
                 "metadata": self.get_metadata(),
@@ -863,13 +689,7 @@ class RedisStorageHandler:
             return {"metadata": {}, "seasons": []}
         
     def write_data(self, data: Dict[str, Any]) -> None:
-        """Write data (compatibility method).
-        
-        This method extracts parts of the data structure and saves them to Redis.
-        
-        Args:
-            data: Complete data structure to write
-        """
+        """Write data (compatibility method)."""
         try:
             # Extract metadata and write it
             metadata = data.get("metadata", {})
@@ -915,11 +735,7 @@ class RedisStorageHandler:
             self.logger.error(f"Error writing data: {str(e)}")
     
     def exists(self) -> bool:
-        """Check if storage exists (compatibility method).
-        
-        Returns:
-            bool: True if storage exists
-        """
+        """Check if storage exists (compatibility method)."""
         try:
             return self.redis.exists(self.METADATA_KEY) > 0
         except Exception as e:
@@ -929,16 +745,7 @@ class RedisStorageHandler:
     def update_data(self, season_data: Optional[Dict[str, Any]] = None,
                     designer_data: Optional[Dict[str, Any]] = None,
                     look_data: Optional[Dict[str, Any]] = None) -> bool:
-        """Update data (compatibility method).
-        
-        Args:
-            season_data: Optional season data
-            designer_data: Optional designer data
-            look_data: Optional look data
-            
-        Returns:
-            bool: True if update successful
-        """
+        """Update data (compatibility method)."""
         try:
             if season_data:
                 return self.add_season(season_data)
@@ -959,28 +766,12 @@ class RedisStorageHandler:
                 )
             
             if look_data:
-                designer_url = look_data.get("designer_url")
-                look_number = look_data.get("look_number")
-                images = look_data.get("images", [])
-                
-                if not designer_url:
-                    # Try to find designer from indices
-                    season_index = look_data.get("season_index", 0)
-                    designer_index = look_data.get("designer_index", 0)
-                    seasons = self.get_all_seasons()
-                    
-                    if season_index < len(seasons):
-                        season = seasons[season_index]
-                        designers = season.get("designers", [])
-                        
-                        if designer_index < len(designers):
-                            designer_url = designers[designer_index].get("url")
-                
-                if not designer_url or not look_number:
-                    self.logger.error("Missing required look data fields")
-                    return False
-                
-                return self.add_look(designer_url, look_number, images)
+                return self.update_look_data(
+                    look_data.get("season_index", 0),
+                    look_data.get("designer_index", 0),
+                    look_data.get("look_number", 0),
+                    look_data.get("images", [])
+                )
             
             self.logger.error("No valid data provided")
             return False
@@ -989,7 +780,6 @@ class RedisStorageHandler:
             self.logger.error(f"Error updating data: {str(e)}")
             return False
     
-    # Redis specific session handling methods for compatibility
     def _start_designer_session(self, designer_url: str) -> None:
         """Start a designer session (compatibility method)."""
         self.logger.info(f"Started session for designer: {designer_url}")
@@ -1003,9 +793,6 @@ class RedisStorageHandler:
         
         For Redis, we don't have a file, so we create a temporary one with
         current data for compatibility with scripts that expect files.
-        
-        Returns:
-            Optional[Path]: Path to temporary file or None
         """
         try:
             import tempfile
@@ -1023,13 +810,12 @@ class RedisStorageHandler:
             data = self.read_data()
             
             # Write data to temporary file
-            import json
             json.dump(data, temp_file, indent=2)
             temp_file.close()
             
             self.logger.info(f"Created temporary file at {temp_file.name} for compatibility")
             
-            # Store the temp file path so we can read it back after the look_updater script modifies it
+            # Store the temp file path
             self._current_temp_file = Path(temp_file.name)
             return self._current_temp_file
             
@@ -1038,17 +824,7 @@ class RedisStorageHandler:
             return None
     
     def update_look_data(self, season_index: int, designer_index: int, look_number: int, images: List[Dict[str, Any]]) -> bool:
-        """Update look data (compatibility method).
-        
-        Args:
-            season_index: Season index
-            designer_index: Designer index
-            look_number: Look number
-            images: Look images
-            
-        Returns:
-            bool: True if update successful
-        """
+        """Update look data (compatibility method)."""
         try:
             # Read data to find designer URL
             data = self.read_data()
@@ -1070,138 +846,10 @@ class RedisStorageHandler:
                 self.logger.error("Missing designer URL")
                 return False
             
-            # Update total_looks if it exists in the data but is 0 or not set yet
-            # Get the current total_looks from the slideshow
-            if "total_looks" in designer:  # Check if the field exists at all
-                total_looks = max(look_number, designer.get("total_looks", 0))
-                
-                self.logger.info(f"Updating designer total_looks: {designer.get('name')} - {designer.get('total_looks', 0)} -> {total_looks}")
-                
-                # Update the designer directly in Redis
-                designer_key = self.DESIGNER_KEY_PATTERN.format(url=designer_url)
-                if self.redis.exists(designer_key):
-                    designer_data = json.loads(self.redis.get(designer_key))
-                    designer_obj = Designer.from_dict(designer_data)
-                    designer_obj.total_looks = total_looks
-                    self.redis.set(designer_key, json.dumps(designer_obj.to_dict()))
-                    
-                    # Also update in the season data
-                    designer["total_looks"] = total_looks
-                    season_key = self.SEASON_KEY_PATTERN.format(season=season["season"], year=season["year"])
-                    if self.redis.exists(season_key):
-                        season_data = json.loads(self.redis.get(season_key))
-                        season_obj = Season.from_dict(season_data)
-                        for d in season_obj.designers:
-                            if d.url == designer_url:
-                                d.total_looks = total_looks
-                                break
-                        self.redis.set(season_key, json.dumps(season_obj.to_dict()))
-            
-            # Add look
+            # Add look directly to Redis
             result = self.add_look(designer_url, look_number, images)
             
-            # Check if we need to import the updated JSON file from the emergency look updater
-            if self._current_temp_file and self._current_temp_file.exists():
-                try:
-                    self.logger.info(f"Importing data back from temporary file: {self._current_temp_file}")
-                    
-                    # Read the updated data from the temp file
-                    with open(self._current_temp_file, 'r') as f:
-                        updated_data = json.load(f)
-                    
-                    # CRITICAL: Import the look data from the temp file directly
-                    if "seasons" in updated_data and len(updated_data["seasons"]) > season_index:
-                        season_data = updated_data["seasons"][season_index]
-                        
-                        if "designers" in season_data and len(season_data["designers"]) > designer_index:
-                            designer_data = season_data["designers"][designer_index]
-                            
-                            # Copy the looks data from the JSON file into Redis
-                            if "looks" in designer_data:
-                                self.logger.info(f"Found {len(designer_data['looks'])} looks in temp file for {designer_data.get('name', 'Unknown')}")
-                                
-                                # Update the designer object in Redis
-                                designer_key = self.DESIGNER_KEY_PATTERN.format(url=designer_url)
-                                if self.redis.exists(designer_key):
-                                    redis_designer_data = json.loads(self.redis.get(designer_key))
-                                    designer_obj = Designer.from_dict(redis_designer_data)
-                                    
-                                    # Copy all looks from the temp file
-                                    for look_data in designer_data.get("looks", []):
-                                        if "look_number" not in look_data:
-                                            continue
-                                            
-                                        look_number = look_data["look_number"]
-                                        look_completed = look_data.get("completed", False)
-                                        look_images = look_data.get("images", [])
-                                        
-                                        if not look_images:
-                                            continue
-                                            
-                                        # Add this look to the designer object
-                                        look_exists = False
-                                        for i, existing_look in enumerate(designer_obj.looks):
-                                            if existing_look.look_number == look_number:
-                                                designer_obj.looks[i].completed = look_completed
-                                                designer_obj.looks[i].images = [Image.from_dict(img) for img in look_images]
-                                                look_exists = True
-                                                break
-                                                
-                                        if not look_exists:
-                                            # Create a new look with the images
-                                            new_look = Look(look_number=look_number, completed=True)
-                                            new_look.images = [Image.from_dict(img) for img in look_images]
-                                            designer_obj.looks.append(new_look)
-                                    
-                                    # Update the designer's extracted_looks count
-                                    designer_obj.extracted_looks = sum(1 for l in designer_obj.looks if l.completed and l.images)
-                                    designer_obj.completed = designer_obj.extracted_looks >= designer_obj.total_looks
-                                    
-                                    # Save the updated designer back to Redis
-                                    self.redis.set(designer_key, json.dumps(designer_obj.to_dict()))
-                                    self.logger.info(f"Updated designer in Redis with {designer_obj.extracted_looks} completed looks")
-                                    
-                                    # Also update season data to reflect these changes
-                                    season_key = self.SEASON_KEY_PATTERN.format(
-                                        season=season["season"], 
-                                        year=season["year"]
-                                    )
-                                    
-                                    if self.redis.exists(season_key):
-                                        season_obj_data = json.loads(self.redis.get(season_key))
-                                        season_obj = Season.from_dict(season_obj_data)
-                                        
-                                        # Update this designer in the season
-                                        for i, d in enumerate(season_obj.designers):
-                                            if d.url == designer_url:
-                                                season_obj.designers[i].extracted_looks = designer_obj.extracted_looks
-                                                season_obj.designers[i].completed = designer_obj.completed
-                                                break
-                                        
-                                        # Update season and save
-                                        season_obj.completed_designers = sum(1 for d in season_obj.designers if d.completed)
-                                        self.redis.set(season_key, json.dumps(season_obj.to_dict()))
-                    
-                    # Get the progress from the updated file
-                    if "metadata" in updated_data and "overall_progress" in updated_data["metadata"]:
-                        progress = updated_data["metadata"]["overall_progress"]
-                        
-                        # Get metadata from Redis
-                        metadata_str = self.redis.get(self.METADATA_KEY)
-                        metadata = Metadata.from_dict(json.loads(metadata_str))
-                        
-                        # Update Redis metadata with progress from the temp file
-                        metadata.overall_progress.extracted_looks = progress.get("extracted_looks", 0)
-                        metadata.overall_progress.completion_percentage = progress.get("completion_percentage", 0.0)
-                        
-                        # Save updated metadata back to Redis
-                        self.redis.set(self.METADATA_KEY, json.dumps(metadata.to_dict()))
-                        
-                        self.logger.info(f"Updated Redis progress from temp file: {metadata.overall_progress.extracted_looks}/{metadata.overall_progress.total_looks} looks ({metadata.overall_progress.completion_percentage}%)")
-                except Exception as import_err:
-                    self.logger.error(f"Error importing data from temp file: {str(import_err)}")
-            
-            # Force an update of the metadata progress
+            # Force a metadata refresh to ensure counts are up to date
             self._update_metadata_progress()
             
             return result

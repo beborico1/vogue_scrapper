@@ -110,19 +110,25 @@ class ProgressTracker:
                     designer_looks = designer.get("looks", [])
                     designer_completed_looks = 0
                     
-                    # Add debug for each designer's looks
-                    self.logger.info(f"DEBUG: Designer {designer.get('name')} has {len(designer_looks)} looks in data")
-                    
-                    for look in designer_looks:
-                        # Log each look's completion status and image count for debugging
-                        look_completed = look.get("completed", False)
-                        look_has_images = "images" in look and look["images"]
-                        look_num = look.get("look_number", "unknown")
+                    # Check if we should use the pre-computed extracted_looks value
+                    if "extracted_looks" in designer and isinstance(designer["extracted_looks"], int) and designer["extracted_looks"] > 0:
+                        designer_completed_looks = designer["extracted_looks"]
+                        self.logger.info(f"DEBUG: Using pre-computed extracted_looks value: {designer_completed_looks}")
+                    else:
+                        # Add debug for each designer's looks
+                        self.logger.info(f"DEBUG: Designer {designer.get('name')} has {len(designer_looks)} looks in data")
                         
-                        self.logger.info(f"DEBUG: Look {look_num} - completed: {look_completed}, has_images: {look_has_images}, image count: {len(look.get('images', []))}")
-                        
-                        if look_completed and look_has_images:
-                            designer_completed_looks += 1
+                        # Count the looks manually
+                        for look in designer_looks:
+                            # Log each look's completion status and image count for debugging
+                            look_completed = look.get("completed", False)
+                            look_has_images = "images" in look and look["images"]
+                            look_num = look.get("look_number", "unknown")
+                            
+                            self.logger.info(f"DEBUG: Look {look_num} - completed: {look_completed}, has_images: {look_has_images}, image count: {len(look.get('images', []))}")
+                            
+                            if look_completed and look_has_images:
+                                designer_completed_looks += 1
                     
                     self.logger.info(f"DEBUG: Designer {designer.get('name')} has {designer_completed_looks} completed looks out of {designer_total_looks} total")
                     

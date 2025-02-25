@@ -6,6 +6,8 @@ runway show data in real-time with automatic checkpoint management.
 """
 
 import argparse
+import os
+import sys
 from typing import Dict, Optional, List, Tuple, Any
 from datetime import datetime
 from pathlib import Path
@@ -13,21 +15,34 @@ from pathlib import Path
 from src.scraper import VogueScraper
 from src.utils.driver import setup_chrome_driver
 from src.utils.logging import setup_logger
-from src.utils.storage.storage_handler import DataStorageHandler
-from src.config.settings import BASE_URL, AUTH_URL
+from src.utils.storage.storage_factory import StorageFactory
+from src.config.settings import config, BASE_URL, AUTH_URL
 from src.exceptions.errors import AuthenticationError, ScraperError, StorageError
 from src.handlers.slideshow import VogueSlideshowScraper
 from src.utils.storage.progress_tracker import ProgressTracker
 
 
 def find_latest_checkpoint() -> Optional[str]:
-    """Find the most recent JSON checkpoint file in the data directory.
+    """Find the most recent checkpoint file in the data directory.
+    
+    Returns either the latest JSON file or the latest Redis checkpoint ID
+    depending on the storage mode.
 
     Returns:
         Optional[str]: Path to latest checkpoint file or None if no checkpoints exist
     """
     try:
-        data_dir = Path("data")
+        logger = setup_logger()
+        
+        # For Redis storage, we would need a different approach
+        if config.is_redis_storage:
+            # In a real implementation, we would query Redis for the latest checkpoint ID
+            # This is a simplified placeholder
+            logger.info("Redis storage mode - checkpoint auto-detection not implemented")
+            return None
+        
+        # For JSON storage, find the latest JSON file
+        data_dir = Path(config.storage.BASE_DIR)
         if not data_dir.exists():
             return None
 
@@ -51,7 +66,7 @@ class VogueRunwayScraper:
         """Initialize the scraper orchestrator.
 
         Args:
-            checkpoint_file: Optional path to checkpoint file to resume from
+            checkpoint_file: Optional path to checkpoint file or ID to resume from
         """
         self.logger = setup_logger()
 
@@ -59,12 +74,15 @@ class VogueRunwayScraper:
         if checkpoint_file is None:
             latest_checkpoint = find_latest_checkpoint()
             if latest_checkpoint:
-                self.logger.info(f"Using latest checkpoint file: {latest_checkpoint}")
+                self.logger.info(f"Using latest checkpoint: {latest_checkpoint}")
                 checkpoint_file = latest_checkpoint
             else:
                 self.logger.info("No existing checkpoint found, starting fresh")
 
-        self.storage = DataStorageHandler(checkpoint_file=checkpoint_file)
+        # Create storage handler using factory based on configuration
+        self.storage = StorageFactory.create_storage_handler(checkpoint_file)
+        self.logger.info(f"Using {config.storage.STORAGE_MODE} storage")
+        
         self.driver = None
         self.scraper = None
         self.current_file = None
@@ -361,15 +379,62 @@ def main():
     """Main entry point with automatic checkpoint detection."""
     parser = argparse.ArgumentParser(description="Vogue Runway Scraper")
     parser.add_argument(
-        "--checkpoint",
+        "--checkpoint", "-c",
         type=str,
-        help="Path to checkpoint file to resume from (optional, will use latest if not specified)",
+        help="Path to checkpoint file or ID to resume from (optional, will use latest if not specified)",
     )
+    parser.add_argument(
+        "--storage", "-s",
+        type=str,
+        choices=["json", "redis"],
+        help="Storage backend to use (json or redis)",
+    )
+    parser.add_argument(
+        "--redis-host", 
+        type=str,
+        help="Redis host (default: localhost)",
+    )
+    parser.add_argument(
+        "--redis-port", 
+        type=int,
+        help="Redis port (default: 6379)",
+    )
+    parser.add_argument(
+        "--redis-db", 
+        type=int,
+        help="Redis database number (default: 0)",
+    )
+    parser.add_argument(
+        "--redis-password", 
+        type=str,
+        help="Redis password (if required)",
+    )
+    
     args = parser.parse_args()
 
+    # Override config from command line args
+    if args.storage:
+        config.storage.STORAGE_MODE = args.storage
+        
+    if args.redis_host:
+        config.storage.REDIS.HOST = args.redis_host
+        
+    if args.redis_port:
+        config.storage.REDIS.PORT = args.redis_port
+        
+    if args.redis_db:
+        config.storage.REDIS.DB = args.redis_db
+        
+    if args.redis_password:
+        config.storage.REDIS.PASSWORD = args.redis_password
+
     # Create data directory if it doesn't exist
-    data_dir = Path("data")
+    data_dir = Path(config.storage.BASE_DIR)
     data_dir.mkdir(exist_ok=True)
+
+    # Create logs directory if it doesn't exist
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
 
     # Initialize and run scraper
     scraper = VogueRunwayScraper(checkpoint_file=args.checkpoint)

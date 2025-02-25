@@ -17,8 +17,9 @@ from pathlib import Path
 
 # Base URLs and authentication
 BASE_URL: str = "https://www.vogue.com"
+FASHION_SHOWS_URL: str = "https://www.vogue.com/fashion-shows"
 AUTH_URL: str = (
-    "https://link.condenast.com/click/67bd1f3edaf771816108f820/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9NGVjZDdmMTEtYmM1NS00NjYwLTg3ZWYtNjdlYThkNmRjNWU0LjE3NDA0NDc0OTczMzYmeGlkPWExZWJhMTRhLTNlNmQtNGJjOC1hNjIyLTJhMWVkMDk3Yzk1MiZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkZmYXNoaW9uLXNob3dzJTJGZmFsbC0xOTg4LXJlYWR5LXRvLXdlYXIlM0Zfc3AlM0Q0ZWNkN2YxMS1iYzU1LTQ2NjAtODdlZi02N2VhOGQ2ZGM1ZTQuMTc0MDQ0NzQ5NzMzNiUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9VkVSU09fTkFWSUdBVElPTiZjbGllbnRfaWQ9Y29uZGVuYXN0LmlkZW50aXR5LmZiYzkwOTZkYzYxZjliNzljNWFjNGM4NTk5OGRhMDc1JnJlZGlyZWN0X3VyaT1odHRwcyUzQSUyRiUyRnd3dy52b2d1ZS5jb20lMkZhdXRoJTJGY29tcGxldGUmcmVzcG9uc2VfdHlwZT1jb2RlJmZpcnN0X3RpbWVfc2lnbl9pbj11bmRlZmluZWQmY29kZT03MWI5Zjc0YjE5NTcyM2QwNDljZTM2NGIyZTk4ODI1YWZhOTRkZDk4YWMzYTQ3NzY0ZWEzZDUwNjc0OGFlMzY0/678e7581a88d545cd703e31fC160656f4"
+    "https://link.condenast.com/click/67bd4966369a99721b0c8c08/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9NGVjZDdmMTEtYmM1NS00NjYwLTg3ZWYtNjdlYThkNmRjNWU0LjE3NDA0NTgzMzQyMTkmeGlkPWExZWJhMTRhLTNlNmQtNGJjOC1hNjIyLTJhMWVkMDk3Yzk1MiZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkZmYXNoaW9uLXNob3dzJTJGZmFsbC0xOTg4LXJlYWR5LXRvLXdlYXIlM0Zfc3AlM0Q0ZWNkN2YxMS1iYzU1LTQ2NjAtODdlZi02N2VhOGQ2ZGM1ZTQuMTc0MDQ1ODMzNDIxOSUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9VkVSU09fTkFWSUdBVElPTiZjbGllbnRfaWQ9Y29uZGVuYXN0LmlkZW50aXR5LmZiYzkwOTZkYzYxZjliNzljNWFjNGM4NTk5OGRhMDc1JnJlZGlyZWN0X3VyaT1odHRwcyUzQSUyRiUyRnd3dy52b2d1ZS5jb20lMkZhdXRoJTJGY29tcGxldGUmcmVzcG9uc2VfdHlwZT1jb2RlJmZpcnN0X3RpbWVfc2lnbl9pbj11bmRlZmluZWQmY29kZT0yYWVhZTgzNmVlYWE3MWRmMTMxMTkyMTI4YjI5MDljOTUxYmUzMGQ5ZmM5MzdkYjM2ZjQ0Y2E0NmM4NmMwODg1/678e7581a88d545cd703e31fC9e16c7ef"
 )
 
 
@@ -75,12 +76,31 @@ def get_default_image_resolution() -> Dict[str, str]:
 
 
 @dataclass
+class RedisConfig:
+    """Redis storage configuration."""
+    
+    HOST: str = "localhost"
+    PORT: int = 6379
+    DB: int = 0
+    PASSWORD: Optional[str] = None
+    KEY_PREFIX: str = "vogue:"
+    CONNECTION_POOL_MAX: int = 10
+
+
+@dataclass
 class StorageConfig:
     """Storage-related configuration settings."""
 
+    # Storage mode (json or redis)
+    STORAGE_MODE: str = "redis"# "json"
+    
+    # General settings
     BASE_DIR: str = field(default="data")
     TIMESTAMP_FORMAT: str = "%Y%m%d_%H%M%S"
-    FILE_PREFIX: str = "vogue_runway"
+    FILE_PREFIX: str = "vogue_data"
+    
+    # Redis specific settings
+    REDIS: RedisConfig = field(default_factory=RedisConfig)
 
     @property
     def default_data_structure(self) -> Dict[str, Any]:
@@ -120,6 +140,23 @@ class Config:
         self.image = ImageConfig()
         self.storage = StorageConfig()
         self.output_dir = os.getenv("VOGUE_OUTPUT_DIR", "data")
+        
+        # Load environment variables for configuration
+        self._load_from_env()
+
+    def _load_from_env(self) -> None:
+        """Load configuration from environment variables."""
+        # Storage mode
+        self.storage.STORAGE_MODE = os.getenv("VOGUE_STORAGE_MODE", self.storage.STORAGE_MODE)
+        
+        # Redis settings
+        self.storage.REDIS.HOST = os.getenv("VOGUE_REDIS_HOST", self.storage.REDIS.HOST)
+        self.storage.REDIS.PORT = int(os.getenv("VOGUE_REDIS_PORT", str(self.storage.REDIS.PORT)))
+        self.storage.REDIS.DB = int(os.getenv("VOGUE_REDIS_DB", str(self.storage.REDIS.DB)))
+        self.storage.REDIS.PASSWORD = os.getenv("VOGUE_REDIS_PASSWORD", self.storage.REDIS.PASSWORD)
+        
+        # Output directory
+        self.output_dir = os.getenv("VOGUE_OUTPUT_DIR", self.output_dir)
 
     @property
     def chrome_options(self) -> Dict[str, str]:
@@ -140,7 +177,12 @@ class Config:
     def storage_paths(self) -> Dict[str, Path]:
         """Get storage-related paths."""
         base_dir = Path(self.storage.BASE_DIR)
-        return {"base_dir": base_dir, "data_dir": base_dir / "data", "logs_dir": base_dir / "logs"}
+        return {"base_dir": base_dir, "data_dir": base_dir, "logs_dir": Path("logs")}
+
+    @property
+    def is_redis_storage(self) -> bool:
+        """Check if storage mode is Redis."""
+        return self.storage.STORAGE_MODE.lower() == "redis"
 
 
 # Create a global config instance
@@ -168,9 +210,17 @@ SELECTORS = {
 
 # Storage settings
 STORAGE = {
+    "mode": config.storage.STORAGE_MODE,
     "base_dir": config.storage.BASE_DIR,
     "timestamp_format": config.storage.TIMESTAMP_FORMAT,
     "file_prefix": config.storage.FILE_PREFIX,
+    "redis": {
+        "host": config.storage.REDIS.HOST,
+        "port": config.storage.REDIS.PORT,
+        "db": config.storage.REDIS.DB,
+        "password": config.storage.REDIS.PASSWORD,
+        "key_prefix": config.storage.REDIS.KEY_PREFIX,
+    }
 }
 
 IMAGE_RESOLUTION = config.image.RESOLUTION
