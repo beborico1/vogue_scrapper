@@ -73,6 +73,9 @@ class ProgressTracker:
             data = self.storage.read_data()
             progress = data["metadata"]["overall_progress"]
 
+            # Add debug logging
+            self.logger.info(f"DEBUG: Starting progress update. Current data: {json.dumps(progress)}")
+
             # Calculate current metrics with care for each counter
             total_designers = 0
             completed_designers = 0
@@ -98,13 +101,31 @@ class ProgressTracker:
                 if season["completed"]:
                     completed_seasons += 1
 
-                # Count looks
+                # Count looks with detailed logging
                 for designer in designers:
                     designer_total_looks = designer.get("total_looks", 0)
                     total_looks += designer_total_looks
                     
-                    # Count completed looks and update designer record
-                    designer_completed_looks = sum(1 for look in designer.get("looks", []) if look.get("completed", False))
+                    # Count completed looks and log details
+                    designer_looks = designer.get("looks", [])
+                    designer_completed_looks = 0
+                    
+                    # Add debug for each designer's looks
+                    self.logger.info(f"DEBUG: Designer {designer.get('name')} has {len(designer_looks)} looks in data")
+                    
+                    for look in designer_looks:
+                        # Log each look's completion status and image count for debugging
+                        look_completed = look.get("completed", False)
+                        look_has_images = "images" in look and look["images"]
+                        look_num = look.get("look_number", "unknown")
+                        
+                        self.logger.info(f"DEBUG: Look {look_num} - completed: {look_completed}, has_images: {look_has_images}, image count: {len(look.get('images', []))}")
+                        
+                        if look_completed and look_has_images:
+                            designer_completed_looks += 1
+                    
+                    self.logger.info(f"DEBUG: Designer {designer.get('name')} has {designer_completed_looks} completed looks out of {designer_total_looks} total")
+                    
                     extracted_looks += designer_completed_looks
                     
                     # Update designer extracted_looks count
@@ -122,6 +143,8 @@ class ProgressTracker:
                 "total_looks": total_looks,
                 "extracted_looks": extracted_looks,
             })
+            
+            self.logger.info(f"DEBUG: Updated progress counts - extracted_looks: {extracted_looks}, total_looks: {total_looks}")
 
             # Update timestamp
             current_time = datetime.now()
@@ -151,6 +174,7 @@ class ProgressTracker:
             data["metadata"]["last_updated"] = current_time.isoformat()
             if force_save:
                 self.storage.write_data(data)
+                self.logger.info(f"DEBUG: Saved updated progress to storage")
 
             # Log progress with detailed counts
             self.logger.info(
