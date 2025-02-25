@@ -711,6 +711,16 @@ class RedisStorageHandler:
             metadata = self.get_metadata()
             progress = metadata.get("overall_progress", {})
             
+            # Ensure all required fields are present in the progress data
+            if "completion_percentage" not in progress:
+                progress["completion_percentage"] = 0.0
+            if "extraction_rate" not in progress:
+                progress["extraction_rate"] = 0.0
+            if "estimated_completion" not in progress:
+                progress["estimated_completion"] = None
+            if "start_time" not in progress:
+                progress["start_time"] = datetime.now().isoformat()
+            
             return {
                 "total_seasons": progress.get("total_seasons", 0),
                 "completed_seasons": progress.get("completed_seasons", 0),
@@ -718,6 +728,8 @@ class RedisStorageHandler:
                 "completed_designers": progress.get("completed_designers", 0),
                 "total_looks": progress.get("total_looks", 0),
                 "extracted_looks": progress.get("extracted_looks", 0),
+                "completion_percentage": progress.get("completion_percentage", 0.0),
+                "extraction_rate": progress.get("extraction_rate", 0.0),
                 "instance_id": self.instance_id,
                 "progress": progress,  # For VogueRunwayScraper compatibility
             }
