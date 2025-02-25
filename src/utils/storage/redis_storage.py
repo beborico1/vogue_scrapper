@@ -1109,6 +1109,79 @@ class RedisStorageHandler:
                     with open(self._current_temp_file, 'r') as f:
                         updated_data = json.load(f)
                     
+                    # CRITICAL: Import the look data from the temp file directly
+                    if "seasons" in updated_data and len(updated_data["seasons"]) > season_index:
+                        season_data = updated_data["seasons"][season_index]
+                        
+                        if "designers" in season_data and len(season_data["designers"]) > designer_index:
+                            designer_data = season_data["designers"][designer_index]
+                            
+                            # Copy the looks data from the JSON file into Redis
+                            if "looks" in designer_data:
+                                self.logger.info(f"Found {len(designer_data['looks'])} looks in temp file for {designer_data.get('name', 'Unknown')}")
+                                
+                                # Update the designer object in Redis
+                                designer_key = self.DESIGNER_KEY_PATTERN.format(url=designer_url)
+                                if self.redis.exists(designer_key):
+                                    redis_designer_data = json.loads(self.redis.get(designer_key))
+                                    designer_obj = Designer.from_dict(redis_designer_data)
+                                    
+                                    # Copy all looks from the temp file
+                                    for look_data in designer_data.get("looks", []):
+                                        if "look_number" not in look_data:
+                                            continue
+                                            
+                                        look_number = look_data["look_number"]
+                                        look_completed = look_data.get("completed", False)
+                                        look_images = look_data.get("images", [])
+                                        
+                                        if not look_images:
+                                            continue
+                                            
+                                        # Add this look to the designer object
+                                        look_exists = False
+                                        for i, existing_look in enumerate(designer_obj.looks):
+                                            if existing_look.look_number == look_number:
+                                                designer_obj.looks[i].completed = look_completed
+                                                designer_obj.looks[i].images = [Image.from_dict(img) for img in look_images]
+                                                look_exists = True
+                                                break
+                                                
+                                        if not look_exists:
+                                            # Create a new look with the images
+                                            new_look = Look(look_number=look_number, completed=True)
+                                            new_look.images = [Image.from_dict(img) for img in look_images]
+                                            designer_obj.looks.append(new_look)
+                                    
+                                    # Update the designer's extracted_looks count
+                                    designer_obj.extracted_looks = sum(1 for l in designer_obj.looks if l.completed and l.images)
+                                    designer_obj.completed = designer_obj.extracted_looks >= designer_obj.total_looks
+                                    
+                                    # Save the updated designer back to Redis
+                                    self.redis.set(designer_key, json.dumps(designer_obj.to_dict()))
+                                    self.logger.info(f"Updated designer in Redis with {designer_obj.extracted_looks} completed looks")
+                                    
+                                    # Also update season data to reflect these changes
+                                    season_key = self.SEASON_KEY_PATTERN.format(
+                                        season=season["season"], 
+                                        year=season["year"]
+                                    )
+                                    
+                                    if self.redis.exists(season_key):
+                                        season_obj_data = json.loads(self.redis.get(season_key))
+                                        season_obj = Season.from_dict(season_obj_data)
+                                        
+                                        # Update this designer in the season
+                                        for i, d in enumerate(season_obj.designers):
+                                            if d.url == designer_url:
+                                                season_obj.designers[i].extracted_looks = designer_obj.extracted_looks
+                                                season_obj.designers[i].completed = designer_obj.completed
+                                                break
+                                        
+                                        # Update season and save
+                                        season_obj.completed_designers = sum(1 for d in season_obj.designers if d.completed)
+                                        self.redis.set(season_key, json.dumps(season_obj.to_dict()))
+                    
                     # Get the progress from the updated file
                     if "metadata" in updated_data and "overall_progress" in updated_data["metadata"]:
                         progress = updated_data["metadata"]["overall_progress"]
