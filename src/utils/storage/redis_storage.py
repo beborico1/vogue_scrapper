@@ -268,6 +268,15 @@ class RedisStorageHandler:
                 self.logger.error(f"Designer not found: {designer_url}")
                 return False
             
+            # Load designer data first
+            designer_data = json.loads(self.redis.get(designer_key))
+            designer = Designer.from_dict(designer_data)
+            
+            # Update total_looks if needed based on the look number
+            if look_number > designer.total_looks:
+                self.logger.info(f"Updating total_looks based on look number: {designer.total_looks} -> {look_number}")
+                designer.total_looks = look_number
+            
             # Check if look exists
             look_exists = self.redis.exists(look_key)
             
@@ -285,18 +294,22 @@ class RedisStorageHandler:
             
             for img_data in images:
                 # Validate image data
-                if not all(key in img_data for key in ["url", "alt_text"]):
+                if not all(key in img_data for key in ["url"]):
                     continue
                 
                 # Create image object
                 image = Image(
                     url=img_data["url"],
                     look_number=look_number,
-                    alt_text=img_data.get("alt_text", ""),
+                    alt_text=img_data.get("alt_text", f"Look {look_number}"),
                     type=img_data.get("type", "default"),
                     timestamp=timestamp
                 )
                 processed_images.append(image)
+            
+            if not processed_images:
+                self.logger.warning(f"No valid images found for look {look_number}")
+                return False
             
             # Add new images to look
             look.images.extend(processed_images)
@@ -305,36 +318,62 @@ class RedisStorageHandler:
             # Save look data
             self.redis.set(look_key, json.dumps(look.to_dict()))
             
-            # Update designer with look information
-            designer_data = json.loads(self.redis.get(designer_key))
-            designer = Designer.from_dict(designer_data)
-            
             # Find or create look in designer
             look_exists_in_designer = False
             for i, l in enumerate(designer.looks):
                 if l.look_number == look_number:
                     designer.looks[i].completed = True
+                    designer.looks[i].images = processed_images  # Update with the latest images
                     look_exists_in_designer = True
                     break
             
             if not look_exists_in_designer:
-                # Add look reference to designer
-                designer.looks.append(Look(look_number=look_number, completed=True))
+                # Create a look with images
+                new_look = Look(look_number=look_number, completed=True)
+                new_look.images = processed_images
+                designer.looks.append(new_look)
             
             # Sort looks in designer
             designer.looks.sort(key=lambda x: x.look_number)
             
-            # Update extraction counts
-            designer.extracted_looks = sum(1 for l in designer.looks if l.completed)
+            # Count extracted_looks directly based on the look data
+            designer.extracted_looks = sum(1 for l in designer.looks if l.completed and l.images)
+            
+            # Update completion status
             designer.completed = designer.extracted_looks >= designer.total_looks
             
             # Save updated designer
             self.redis.set(designer_key, json.dumps(designer.to_dict()))
             
+            # Update all season references to this designer
+            for season_id in self.redis.smembers(self.ALL_SEASONS_KEY):
+                season_name, year = season_id.split(":")
+                season_key = self.SEASON_KEY_PATTERN.format(season=season_name, year=year)
+                
+                if self.redis.exists(season_key):
+                    season_data = json.loads(self.redis.get(season_key))
+                    season_obj = Season.from_dict(season_data)
+                    
+                    # Find this designer in the season
+                    for i, d in enumerate(season_obj.designers):
+                        if d.url == designer_url:
+                            # Update the designer reference
+                            season_obj.designers[i].total_looks = designer.total_looks
+                            season_obj.designers[i].extracted_looks = designer.extracted_looks
+                            season_obj.designers[i].completed = designer.completed
+                            
+                            # Update completed_designers count
+                            season_obj.completed_designers = sum(1 for d in season_obj.designers if d.completed)
+                            season_obj.completed = season_obj.completed_designers >= season_obj.total_designers
+                            
+                            # Save the updated season
+                            self.redis.set(season_key, json.dumps(season_obj.to_dict()))
+                            break
+            
             # Update metadata
             self._update_metadata_progress()
             
-            self.logger.info(f"Saved look {look_number} with {len(processed_images)} images")
+            self.logger.info(f"Saved look {look_number} with {len(processed_images)} images. Designer has {designer.extracted_looks}/{designer.total_looks} looks completed.")
             return True
             
         except Exception as e:
@@ -591,16 +630,38 @@ class RedisStorageHandler:
                 if self.redis.exists(designer_key):
                     designer_data = json.loads(self.redis.get(designer_key))
                     
+                    # Count completed designer
                     if designer_data.get("completed", False):
                         completed_designers += 1
                     
-                    total_looks += designer_data.get("total_looks", 0)
-                    extracted_looks += designer_data.get("extracted_looks", 0)
+                    # Get total looks
+                    design_total_looks = designer_data.get("total_looks", 0)
+                    total_looks += design_total_looks
+                    
+                    # Count extracted/completed looks directly from look data
+                    # This is more reliable than using the extracted_looks counter
+                    completed_look_count = 0
+                    for look in designer_data.get("looks", []):
+                        if look.get("completed", False) and "images" in look and look["images"]:
+                            completed_look_count += 1
+                    
+                    # Update the designer's extracted_looks in Redis
+                    designer_obj = Designer.from_dict(designer_data)
+                    if designer_obj.extracted_looks != completed_look_count:
+                        self.logger.info(f"Correcting extracted_looks for {designer_data.get('name')}: {designer_obj.extracted_looks} -> {completed_look_count}")
+                        designer_obj.extracted_looks = completed_look_count
+                        designer_obj.completed = completed_look_count >= design_total_looks
+                        self.redis.set(designer_key, json.dumps(designer_obj.to_dict()))
+                    
+                    extracted_looks += completed_look_count
             
             # Calculate completion percentage
             completion_percentage = 0.0
             if total_looks > 0:
                 completion_percentage = round((extracted_looks / total_looks) * 100, 2)
+            
+            # Log the counts we found
+            self.logger.info(f"Progress update - Total looks: {total_looks}, Extracted looks: {extracted_looks}, Completion: {completion_percentage}%")
             
             # Get existing progress values to preserve rate and time estimates
             current_progress = metadata.overall_progress
