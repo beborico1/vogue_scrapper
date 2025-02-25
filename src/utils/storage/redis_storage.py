@@ -42,6 +42,7 @@ class RedisStorageHandler:
             checkpoint_id: Optional checkpoint ID to restore state
         """
         self.logger = logging.getLogger(__name__)
+        self._current_temp_file = None
         
         try:
             self.redis = redis.Redis(
@@ -1027,7 +1028,10 @@ class RedisStorageHandler:
             temp_file.close()
             
             self.logger.info(f"Created temporary file at {temp_file.name} for compatibility")
-            return Path(temp_file.name)
+            
+            # Store the temp file path so we can read it back after the look_updater script modifies it
+            self._current_temp_file = Path(temp_file.name)
+            return self._current_temp_file
             
         except Exception as e:
             self.logger.error(f"Error creating temporary file: {str(e)}")
@@ -1095,6 +1099,34 @@ class RedisStorageHandler:
             
             # Add look
             result = self.add_look(designer_url, look_number, images)
+            
+            # Check if we need to import the updated JSON file from the emergency look updater
+            if self._current_temp_file and self._current_temp_file.exists():
+                try:
+                    self.logger.info(f"Importing data back from temporary file: {self._current_temp_file}")
+                    
+                    # Read the updated data from the temp file
+                    with open(self._current_temp_file, 'r') as f:
+                        updated_data = json.load(f)
+                    
+                    # Get the progress from the updated file
+                    if "metadata" in updated_data and "overall_progress" in updated_data["metadata"]:
+                        progress = updated_data["metadata"]["overall_progress"]
+                        
+                        # Get metadata from Redis
+                        metadata_str = self.redis.get(self.METADATA_KEY)
+                        metadata = Metadata.from_dict(json.loads(metadata_str))
+                        
+                        # Update Redis metadata with progress from the temp file
+                        metadata.overall_progress.extracted_looks = progress.get("extracted_looks", 0)
+                        metadata.overall_progress.completion_percentage = progress.get("completion_percentage", 0.0)
+                        
+                        # Save updated metadata back to Redis
+                        self.redis.set(self.METADATA_KEY, json.dumps(metadata.to_dict()))
+                        
+                        self.logger.info(f"Updated Redis progress from temp file: {metadata.overall_progress.extracted_looks}/{metadata.overall_progress.total_looks} looks ({metadata.overall_progress.completion_percentage}%)")
+                except Exception as import_err:
+                    self.logger.error(f"Error importing data from temp file: {str(import_err)}")
             
             # Force an update of the metadata progress
             self._update_metadata_progress()
