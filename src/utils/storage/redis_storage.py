@@ -172,6 +172,12 @@ class RedisStorageHandler:
             # Check if designer exists
             designer_exists = self.redis.exists(designer_key)
             
+            # Set default total_looks if not provided
+            if "total_looks" not in designer_data:
+                designer_data["total_looks"] = 0
+            
+            self.logger.info(f"Adding/updating designer: {designer_data['name']} with total_looks: {designer_data['total_looks']}")
+            
             if designer_exists:
                 # Load existing designer
                 existing_data = json.loads(self.redis.get(designer_key))
@@ -180,7 +186,12 @@ class RedisStorageHandler:
                 # Update fields while preserving looks
                 designer.name = designer_data["name"]
                 designer.slideshow_url = designer_data.get("slideshow_url")
-                designer.total_looks = designer_data.get("total_looks", designer.total_looks)
+                
+                # Only update total_looks if the new value is non-zero or greater than existing
+                if designer_data.get("total_looks", 0) > 0:
+                    designer.total_looks = max(designer_data.get("total_looks", 0), designer.total_looks)
+                elif designer.total_looks == 0:
+                    designer.total_looks = designer_data.get("total_looks", 0)
             else:
                 # Create new designer
                 designer = Designer(
@@ -205,20 +216,28 @@ class RedisStorageHandler:
                 # Check if designer already in season
                 designer_urls = [d.url for d in season_obj.designers]
                 if designer_data["url"] not in designer_urls:
-                    # Add designer reference to season
+                    # Add designer reference to season with total_looks
                     season_obj.designers.append(Designer(
                         name=designer_data["name"],
-                        url=designer_data["url"]
+                        url=designer_data["url"],
+                        total_looks=designer.total_looks  # Use the possibly updated value
                     ))
                     season_obj.total_designers = len(season_obj.designers)
-                    
-                    # Save updated season
-                    self.redis.set(season_key, json.dumps(season_obj.to_dict()))
+                else:
+                    # Update existing designer in season
+                    for d in season_obj.designers:
+                        if d.url == designer_data["url"]:
+                            if designer.total_looks > 0:
+                                d.total_looks = designer.total_looks
+                            break
+                
+                # Save updated season
+                self.redis.set(season_key, json.dumps(season_obj.to_dict()))
             
             # Update metadata
             self._update_metadata_progress()
             
-            self.logger.info(f"Saved designer: {designer_data['name']}")
+            self.logger.info(f"Saved designer: {designer_data['name']} with total_looks: {designer.total_looks}")
             return True
             
         except Exception as e:
@@ -986,10 +1005,12 @@ class RedisStorageHandler:
                 self.logger.error("Missing designer URL")
                 return False
             
-            # Update designer total_looks if not set
-            if designer.get("total_looks", 0) == 0 and "total_looks" in designer:
-                # Find the maximum look number from the slideshow to set total_looks
+            # Update total_looks if it exists in the data but is 0 or not set yet
+            # Get the current total_looks from the slideshow
+            if "total_looks" in designer:  # Check if the field exists at all
                 total_looks = max(look_number, designer.get("total_looks", 0))
+                
+                self.logger.info(f"Updating designer total_looks: {designer.get('name')} - {designer.get('total_looks', 0)} -> {total_looks}")
                 
                 # Update the designer directly in Redis
                 designer_key = self.DESIGNER_KEY_PATTERN.format(url=designer_url)
