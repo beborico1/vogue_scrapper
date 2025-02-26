@@ -10,8 +10,8 @@ from typing import Optional, Any
 
 from src.config.settings import config
 from src.exceptions.errors import StorageError
-from src.utils.storage.storage_handler import DataStorageHandler
-from src.utils.storage.redis_storage import RedisStorageHandler
+from src.utils.storage.data_storage_handler import DataStorageHandler
+from src.utils.storage.redis.redis_storage import RedisStorageHandler
 
 
 class StorageFactory:

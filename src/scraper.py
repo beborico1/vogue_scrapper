@@ -15,7 +15,7 @@ from .handlers.images.look_tracker import VogueLookTracker
 from .handlers.images.image_extractor import VogueImageExtractor
 from .handlers.images.gallery_handler import VogueGalleryHandler
 from .handlers.images.images_handler import VogueImagesHandler
-from .utils.storage.handler import DataStorageHandler
+from .utils.storage.data_storage_handler import DataStorageHandler
 
 
 class VogueScraper:

@@ -6,43 +6,46 @@ Please provide with the final complete code for _ with your suggested changes
 
 ## Must
 
-PARALLELIZE
+Make it faster: Why is taking so long to extract the images if we do not want to actually extract any images only get the urls of them, I feel like that should be way faster, oh we should also try to scroll down on every look to ensure every image is there, and well loaded before seeking for the urls
 
-The elapsed_time is also badonkers it should just be created_at last_update
+Recommendations to improve the structure of this project?, Are there files that are not used in this project?
 
-2025-02-20 19:27:44,321 - ERROR - Error scraping designer slideshow: 'ProgressTracker' object has no attribute 'print_progress_summary'
+It should go to gmail to pick the code: ADD IF LINK HAS EXPIRED IT GOES TO GMAIL TO GET A NEW LINK
 
-When a season is completed it always lacks 1 in completed designers like this for example:
-      "total_designers": 9,
-      "completed_designers": 8,
+I feel as if there is something off in the logs check them out
 
-          "extracted_looks": 0, in the designer object is not being updated
-          estimated completion is absolutely off
+Hacer un visualizador for the redis db
 
-Make an html viewer of the json
+Run with 8 workers in the ai machine
 
 ## Should
 
-Modularize (no files of more than 300 lines)
-Run to find discrepancies in the json images emptys, looks emptys, designers emptys, seasons emptys etc.
+Run to find discrepancies in the redis db images emptys, looks emptys, designers emptys, seasons emptys etc.
 Vectorize every image features
 Make a visualizer of each outfit with its closest neighbors using RESNET
 Make a searcher using CLIP
 
 ## Could
 
-1. Fix: WARNING - Error processing season group: Message: no such element: Unable to locate element: {"method":"css selector","selector":".NavigationHeadingWrapper-befTuI"}
-2. Fix: - WARNING - Failed to extract image data: Message: no such element: Unable to locate element: {"method":"tag name","selector":"img"}
-  (Session info: chrome=131.0.6778.265); For documentation on this error, please visit: <https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exceptio>
-3. ADD IF LINK HAS EXPIRED IT GOES TO GMAIL TO GET A NEW LINK
+...
 
 ## Wont
 
-1. Make it faster
+...
 
 ## Done
 
-It is still going to https://www.vogue.com/article/ which is undesired articles should not be webscraped, example: 2025-02-24 18:40:58,318 - INFO - Starting session for designer: The Winter Escape Wardrobe: 5 Resort Trends to Shop Now
+1. Fix: WARNING - Error processing season group: Message: no such element: Unable to locate element: {"method":"css selector","selector":".NavigationHeadingWrapper-befTuI"}
+2. Fix: - WARNING - Failed to extract image data: Message: no such element: Unable to locate element: {"method":"tag name","selector":"img"}
+  (Session info: chrome=131.0.6778.265); For documentation on this error, please visit: <https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exceptio>
+  
+Arreglar el checkpoint de redis
+
+Modularize (no files of more than 300 lines)
+
+Modularizar
+
+It is still going to <https://www.vogue.com/article/> which is undesired articles should not be webscraped, example: 2025-02-24 18:40:58,318 - INFO - Starting session for designer: The Winter Escape Wardrobe: 5 Resort Trends to Shop Now
 
 when it goes to a season it should take the designers from:
 
