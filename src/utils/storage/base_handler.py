@@ -79,6 +79,8 @@ class BaseStorageHandler:
         Returns:
             List of sorted season dictionaries
         """
+        from src.config.settings import config
+        
         def season_sort_key(season):
             # Helper function to convert season name to a numeric value for sorting
             season_order = {
@@ -108,8 +110,8 @@ class BaseStorageHandler:
             # Return a tuple of (year, season_number) for sorting
             return (int(year) if year.isdigit() else 0, season_num)
         
-        # Create a copy to avoid modifying the original
-        sorted_seasons = sorted(seasons, key=season_sort_key)
+        # Sort seasons based on config sorting_type (ascending or descending)
+        sorted_seasons = sorted(seasons, key=season_sort_key, reverse=(config.sorting_type.lower() == "desc"))
         return sorted_seasons
 
     def write_data(self, data: Dict[str, Any]) -> None:

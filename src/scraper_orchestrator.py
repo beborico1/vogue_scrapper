@@ -84,6 +84,24 @@ class VogueRunwayScraper:
         self.error_queue = queue.Queue()
         self.completion_event = threading.Event()
 
+    def set_sorting_type(self, sort_type: str) -> None:
+        """Set the season sorting type.
+        
+        Args:
+            sort_type: 'asc' for ascending (oldest first) or 'desc' for descending (newest first)
+        
+        Raises:
+            ValueError: If sort_type is not 'asc' or 'desc'
+        """
+        if sort_type.lower() not in ['asc', 'desc']:
+            raise ValueError("Sorting type must be 'asc' or 'desc'")
+            
+        # Update the global config setting
+        from src.config.settings import config
+        config.sorting_type = sort_type.lower()
+        
+        self.logger.info(f"Season sorting set to: {sort_type.lower()} - {'newest first' if sort_type.lower() == 'desc' else 'oldest first'}")
+
     @with_retry(max_retries=3, retry_delay=2)
     def initialize_scraper(self) -> None:
         """Initialize the Selenium driver and VogueScraper with retry capability.

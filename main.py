@@ -49,6 +49,14 @@ def main():
         help="Redis password (if required)",
     )
     
+    # Add sorting type parameter
+    parser.add_argument(
+        "--sort", 
+        type=str,
+        choices=["asc", "desc"],
+        help="Season sorting order: 'asc' for oldest first, 'desc' for newest first (default: desc)",
+    )
+    
     # Add parallel processing arguments
     parser.add_argument(
         "--parallel", "-p",
@@ -86,6 +94,10 @@ def main():
         
     if args.redis_password:
         config.storage.REDIS.PASSWORD = args.redis_password
+        
+    # Set sorting type if specified
+    if args.sort:
+        config.sorting_type = args.sort
 
     # Create data directory if it doesn't exist
     data_dir = Path(config.storage.BASE_DIR)

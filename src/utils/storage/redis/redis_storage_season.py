@@ -125,6 +125,8 @@ class RedisStorageSeasonMixin:
             
     def _sort_seasons_chronologically(self, seasons: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Sort seasons chronologically by year and season."""
+        from src.config.settings import config
+        
         def season_sort_key(season):
             # Helper function to convert season name to a numeric value for sorting
             season_order = {
@@ -154,8 +156,8 @@ class RedisStorageSeasonMixin:
             # Return a tuple of (year, season_number) for sorting
             return (int(year) if year.isdigit() else 0, season_num)
             
-        # Sort seasons by year and season (oldest first)
-        return sorted(seasons, key=season_sort_key)
+        # Sort seasons by year and season (using the config.sorting_type)
+        return sorted(seasons, key=season_sort_key, reverse=(config.sorting_type.lower() == "desc"))
     
     def is_season_completed(self, season_data, year=None) -> bool:
         """Check if a season has been completely processed.
