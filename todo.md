@@ -6,7 +6,13 @@ Please provide with the final complete code for _ with your suggested changes
 
 ## Must
 
-Make it faster: Why is taking so long to extract the images if we do not want to actually extract any images only get the urls of them, I feel like that should be way faster, oh we should also try to scroll down on every look to ensure every image is there, and well loaded before seeking for the urls
+Make it faster: Why is taking so long to extract the images if we do not want to actually extract any images only get the urls of them, I feel like that should be way faster, oh we should also try to **scroll down** on every look to ensure every image is there, and well loaded before seeking for the urls
+
+These numbers are completely off: Updated progress: 3412/3782 looks (90.22%). because the exploration space is so minimal we should something about them.
+
+Remove the 2025-02-25 20:08:37,110 - INFO - DEBUG: Using pre-computed extracted_looks value: 47
+
+Fix: 2025-02-25 20:08:58,823 - INFO - Designer: Alaïa - Progress: 0/118 looks (in progress) - Season FALL 1989 READY-TO-WEAR 1989: 0/1 designers completed
 
 Recommendations to improve the structure of this project?, Are there files that are not used in this project?
 
@@ -35,10 +41,12 @@ Make a searcher using CLIP
 
 ## Done
 
+Remove every time.sleep and use more sofisitcated methods
+
 1. Fix: WARNING - Error processing season group: Message: no such element: Unable to locate element: {"method":"css selector","selector":".NavigationHeadingWrapper-befTuI"}
 2. Fix: - WARNING - Failed to extract image data: Message: no such element: Unable to locate element: {"method":"tag name","selector":"img"}
   (Session info: chrome=131.0.6778.265); For documentation on this error, please visit: <https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exceptio>
-  
+
 Arreglar el checkpoint de redis
 
 Modularize (no files of more than 300 lines)

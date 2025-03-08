@@ -1,9 +1,4 @@
-# handlers/images/gallery_handler.py
-"""
-Manages interaction with the Vogue Runway gallery interface.
-Handles finding and processing image collections, coordinating
-with ImageExtractor for data extraction.
-"""
+"""Updated gallery handler with optimized image collection."""
 
 from typing import List, Dict
 from selenium.webdriver.common.by import By
@@ -28,24 +23,22 @@ class VogueGalleryHandler:
     def get_images_for_current_look(self) -> List[Dict[str, str]]:
         """Get all images for the current look."""
         try:
+            # Wait for the gallery to be present
             gallery_wrapper = WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "RunwayGalleryImageCollection"))
             )
-
-            image_elements = gallery_wrapper.find_elements(
-                By.CLASS_NAME, "ImageCollectionListItem-YjTJj"
-            )
-
-            if not image_elements:
-                raise ElementNotFoundError("No image elements found for current look")
-
-            images = []
-            for img_elem in image_elements:
-                image_data = self.image_extractor.extract_image_data(img_elem)
-                if image_data:
-                    images.append(image_data)
-
-            return images
+            
+            # Get the current look number from URL
+            current_url = self.driver.current_url
+            look_number = 1
+            if "#" in current_url:
+                try:
+                    look_number = int(current_url.split("#")[-1])
+                except:
+                    pass
+            
+            # Use the faster image extraction method
+            return self.image_extractor.extract_images_fast(look_number)
 
         except Exception as e:
             self.logger.error(f"Error getting images for current look: {str(e)}")

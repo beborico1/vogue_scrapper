@@ -1,3 +1,4 @@
+# src/parallel/parallel_look_processor_worker.py
 """
 Worker methods for processing individual looks in parallel.
 
@@ -17,6 +18,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.remote.webdriver import WebDriver
 
 from src.utils.driver import setup_chrome_driver
+from src.utils.wait_utils import wait_for_page_load, wait_for_element_presence
 
 
 def process_single_look(
@@ -52,8 +54,9 @@ def process_single_look(
         try:
             # Navigate directly to the look's URL
             thread_driver.get(look_url)
-            import time
-            time.sleep(2)  # Wait for page load
+            
+            # Wait for page to load
+            wait_for_page_load(thread_driver)
             
             # Extract images for the look
             images = extract_look_images(thread_driver, look_number, logger)
@@ -109,9 +112,15 @@ def extract_look_images(
     """
     try:
         # Find the image collection container
-        collection = WebDriverWait(thread_driver, 10).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "RunwayGalleryImageCollection"))
+        collection = wait_for_element_presence(
+            thread_driver, 
+            (By.CLASS_NAME, "RunwayGalleryImageCollection"),
+            10
         )
+        
+        if not collection:
+            logger.error(f"Image collection not found for look {look_number}")
+            return []
         
         # Find all image elements
         image_elements = collection.find_elements(
@@ -120,6 +129,10 @@ def extract_look_images(
         
         images = []
         for img_elem in image_elements:
+            # Scroll to ensure the image is loaded
+            thread_driver.execute_script("arguments[0].scrollIntoView(true);", img_elem)
+            
+            # Extract image data
             image_data = extract_single_image(thread_driver, img_elem, look_number, logger)
             if image_data:
                 images.append(image_data)

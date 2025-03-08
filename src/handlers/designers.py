@@ -1,10 +1,11 @@
 # handlers/designers.py
 """Designers handling for Vogue Runway scraper."""
 
-import time
 from typing import List, Dict
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
 from ..config.settings import PAGE_LOAD_WAIT, SELECTORS
 from ..exceptions.errors import ElementNotFoundError
@@ -29,7 +30,11 @@ class VogueDesignersHandler:
                 return []
                 
             self.driver.get(season_url)
-            time.sleep(PAGE_LOAD_WAIT)
+            
+            # Wait for page to fully load
+            WebDriverWait(self.driver, timeout=PAGE_LOAD_WAIT).until(
+                lambda d: d.execute_script('return document.readyState') == 'complete'
+            )
             
             # Use the navigation links to find designers rather than summary items
             # This targets specifically the designer navigation links within the season page
@@ -58,6 +63,11 @@ class VogueDesignersHandler:
         """Get designers from the navigation links on the season page."""
         designers = []
         try:
+            # Wait for the navigation to load
+            WebDriverWait(self.driver, timeout=PAGE_LOAD_WAIT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, SELECTORS["navigation_link"]))
+            )
+            
             # Look for navigation links with designer names
             nav_links = self.driver.find_elements(By.CLASS_NAME, SELECTORS["navigation_link"])
             
@@ -77,19 +87,29 @@ class VogueDesignersHandler:
                     continue
                     
             return designers
-        except Exception as e:
+        except (TimeoutException, NoSuchElementException) as e:
             self.logger.warning(f"Error getting designers from navigation: {str(e)}")
             return []
 
     def _get_designer_items(self) -> List:
         """Get designer item elements from summary items (fallback method)."""
-        designer_items = self.driver.find_elements(By.CLASS_NAME, SELECTORS["designer_item"])
+        try:
+            # Wait for designer items to load with a specific timeout
+            WebDriverWait(self.driver, timeout=PAGE_LOAD_WAIT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, SELECTORS["designer_item"]))
+            )
+            
+            designer_items = self.driver.find_elements(By.CLASS_NAME, SELECTORS["designer_item"])
 
-        if not designer_items:
-            self.logger.warning("No designer items found in summary")
+            if not designer_items:
+                self.logger.warning("No designer items found in summary")
+                return []
+
+            return designer_items
+            
+        except (TimeoutException, NoSuchElementException) as e:
+            self.logger.warning(f"Error finding designer items: {str(e)}")
             return []
-
-        return designer_items
 
     def _process_designer_items(self, designer_items) -> List[Dict[str, str]]:
         """Process designer items to extract designer data."""

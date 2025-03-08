@@ -1,13 +1,13 @@
 # handlers/seasons.py
 """Seasons handling for Vogue Runway scraper."""
 
-import time
 from typing import List, Dict
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 
 from ..config.settings import PAGE_LOAD_WAIT, SELECTORS
 from ..exceptions.errors import ElementNotFoundError
+from ..utils.wait_utils import wait_for_page_load
 
 
 class VogueSeasonsHandler:
@@ -26,7 +26,9 @@ class VogueSeasonsHandler:
         try:
             url = f"{self.base_url}/fashion-shows/seasons"
             self.driver.get(url)
-            time.sleep(PAGE_LOAD_WAIT)
+            
+            # Wait for page to fully load instead of using sleep
+            wait_for_page_load(self.driver, timeout=PAGE_LOAD_WAIT)
 
             nav_groups = self._get_navigation_groups()
             seasons = self._process_navigation_groups(nav_groups)

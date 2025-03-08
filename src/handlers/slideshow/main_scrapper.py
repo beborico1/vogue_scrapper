@@ -6,7 +6,7 @@ from .image_extractor import ImageExtractor
 from .storage_handler import StorageHandler
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-import time
+
 
 class VogueSlideshowScraper(BaseSlideshowScraper):
     """Main slideshow scraper implementation combining all components."""

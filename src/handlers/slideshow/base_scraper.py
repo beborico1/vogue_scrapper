@@ -1,11 +1,13 @@
 # src/handlers/slideshow/base_scraper.py
 """Base slideshow scraper with initialization and navigation functionality."""
 
-import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import ElementClickInterceptedException
+
+from ...config.settings import PAGE_LOAD_WAIT, ELEMENT_WAIT
+from ...utils.wait_utils import wait_for_page_load
 
 class BaseSlideshowScraper:
     """Base class for slideshow scraping functionality."""
@@ -26,7 +28,7 @@ class BaseSlideshowScraper:
         """Navigate to designer page and enter slideshow view."""
         try:
             self.driver.get(designer_url)
-            time.sleep(2)  # Wait for page load
+            wait_for_page_load(self.driver, timeout=PAGE_LOAD_WAIT)
 
             # First try to find and click the View Slideshow button
             try:
@@ -36,7 +38,11 @@ class BaseSlideshowScraper:
                     )
                 )
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", gallery)
-                time.sleep(1)
+                
+                # Wait for button to be visible after scrolling
+                WebDriverWait(self.driver, ELEMENT_WAIT).until(
+                    lambda d: d.execute_script("return (window.innerHeight + window.scrollY) >= arguments[0].getBoundingClientRect().top", gallery)
+                )
 
                 button = WebDriverWait(self.driver, 10).until(
                     EC.element_to_be_clickable(
@@ -66,7 +72,11 @@ class BaseSlideshowScraper:
                 except ElementClickInterceptedException:
                     self.driver.execute_script("arguments[0].click();", first_look)
 
-            time.sleep(2)  # Wait for slideshow to load
+            # Wait for slideshow gallery to be visible
+            WebDriverWait(self.driver, PAGE_LOAD_WAIT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "RunwayGalleryImageCollection"))
+            )
+            
             return True
 
         except Exception as e:
@@ -107,13 +117,20 @@ class BaseSlideshowScraper:
             if "disabled" in next_button.get_attribute("class").lower():
                 return False
 
+            # Get current look number text before clicking
+            current_look_text = self.driver.find_element(By.CLASS_NAME, "RunwayGalleryLookNumberText-hidXa").text
+
             # Try to click the next button
             try:
                 next_button.click()
             except ElementClickInterceptedException:
                 self.driver.execute_script("arguments[0].click();", next_button)
 
-            time.sleep(1)  # Wait for next look to load
+            # Wait for the look number to change, indicating navigation completed
+            WebDriverWait(self.driver, ELEMENT_WAIT).until(
+                lambda d: d.find_element(By.CLASS_NAME, "RunwayGalleryLookNumberText-hidXa").text != current_look_text
+            )
+            
             return True
 
         except Exception as e:

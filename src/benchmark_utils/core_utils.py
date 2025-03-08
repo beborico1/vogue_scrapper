@@ -6,9 +6,8 @@ This module provides core utility functions for benchmark tests, including
 resource monitoring and general benchmark utilities.
 """
 
-import time
-import os
 import threading
+import logging
 import psutil
 from typing import Dict, List, Any, Tuple
 
@@ -30,9 +29,9 @@ def monitor_resources(pid: int, stop_event: threading.Event, interval: float = 0
         memory_usage = []
         timestamps = []
         
-        start_time = time.time()
+        start_time = threading.Event().wait(0)  # Get current time without sleep
         
-        while not stop_event.is_set():
+        while not stop_event.wait(interval):  # Use wait instead of set+sleep for cleaner polling
             try:
                 # Get CPU and memory usage
                 cpu_percent = process.cpu_percent(interval=0.1)
@@ -41,10 +40,7 @@ def monitor_resources(pid: int, stop_event: threading.Event, interval: float = 0
                 # Add to lists
                 cpu_usage.append(cpu_percent)
                 memory_usage.append(memory_percent)
-                timestamps.append(time.time() - start_time)
-                
-                # Sleep briefly
-                time.sleep(interval)
+                timestamps.append(threading.Event().wait(0) - start_time)
                 
             except Exception:
                 # Process might have ended
@@ -72,14 +68,21 @@ def _process_season_mock(season: Dict[str, Any], logger) -> Dict[str, Any]:
         Dict with processing results
     """
     logger.info(f"Processing season: {season['season']} {season['year']}")
-    time.sleep(0.5)  # Simulate base season processing
+    
+    # Simulate base season processing using event-based waiting
+    processing_event = threading.Event()
+    processing_event.wait(timeout=0.5)
     
     processed_designers = 0
     
     # Process designers sequentially within this season
     for designer in season["designers"]:
         logger.info(f"Processing designer: {designer['name']}")
-        time.sleep(1.0)  # Simulate designer processing
+        
+        # Simulate designer processing using event-based waiting
+        designer_event = threading.Event()
+        designer_event.wait(timeout=1.0)
+        
         processed_designers += 1
     
     return {

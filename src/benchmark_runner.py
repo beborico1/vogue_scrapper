@@ -1,3 +1,4 @@
+# src/benchmark_runner.py
 #!/usr/bin/env python3
 """
 Core benchmark runner for testing parallel processing strategies.
@@ -6,16 +7,15 @@ This script defines the main BenchmarkRunner class which orchestrates
 benchmarks for different parallel processing approaches in the Vogue Runway scraper.
 """
 
-import time
 import os
 import sys
 import json
 import argparse
+import threading
 from typing import Dict, List, Any
 from pathlib import Path
 from datetime import datetime
 import csv
-import threading
 import psutil
 
 # Add project root to path
@@ -24,6 +24,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils.logging import setup_logger
 from src.benchmark_visualizer import BenchmarkVisualizer
 from src.benchmark_utils import monitor_resources, create_temp_storage
+from src.utils.wait_utils import wait_for_page_load
 
 
 class BenchmarkRunner:
@@ -132,7 +133,7 @@ class BenchmarkRunner:
                 season["designers"] = season["designers"][:num_designers]
             
             # Run benchmark
-            start_time = time.time()
+            start_time = datetime.now().timestamp()
             monitor_thread.start()
             
             # Sequential processing simulation
@@ -140,18 +141,27 @@ class BenchmarkRunner:
             for season in test_seasons:
                 # Simulate season processing
                 self.logger.info(f"Processing season: {season['season']} {season['year']}")
-                time.sleep(0.5)  # Simulate base season processing time
+                
+                # Use events for simulation timing instead of sleep
+                processing_complete = threading.Event()
+                threading.Timer(0.5, processing_complete.set).start()  # Simulate base season processing time
+                processing_complete.wait()  # Wait for the timer to complete
                 
                 for designer in season["designers"]:
                     # Simulate designer processing
                     self.logger.info(f"Processing designer: {designer['name']}")
-                    time.sleep(1.0)  # Simulate designer processing time
+                    
+                    # Use events for simulation timing
+                    designer_complete = threading.Event()
+                    threading.Timer(1.0, designer_complete.set).start()  # Simulate designer processing time
+                    designer_complete.wait()  # Wait for the timer to complete
+                    
                     processed_items += 1
             
             # Stop monitoring and get timing data
             stop_monitoring.set()
             monitor_thread.join()
-            end_time = time.time()
+            end_time = datetime.now().timestamp()
             execution_time = end_time - start_time
             
             # Calculate metrics
@@ -243,26 +253,3 @@ class BenchmarkRunner:
                 writer.writerow(row)
         
         self.logger.info(f"Saved benchmark results to {json_path} and {csv_path}")
-
-
-def main():
-    """Main entry point for benchmark script."""
-    parser = argparse.ArgumentParser(description="Benchmark Vogue Scraper Parallel Processing")
-    parser.add_argument("--seasons", type=int, default=3, help="Number of seasons to process")
-    parser.add_argument("--designers", type=int, default=10, help="Number of designers per season")
-    parser.add_argument("--workers", type=str, default="2,4,8", help="Comma-separated list of worker counts")
-    parser.add_argument("--output", type=str, default="benchmark_results", help="Output directory")
-    parser.add_argument("--test-data", type=str, help="Path to test data JSON file")
-    
-    args = parser.parse_args()
-    
-    # Parse worker counts
-    workers_list = [int(w) for w in args.workers.split(",")]
-    
-    # Run benchmarks
-    benchmark = BenchmarkRunner(output_dir=args.output, test_data_path=args.test_data)
-    benchmark.run_all_benchmarks(args.seasons, args.designers, workers_list)
-
-
-if __name__ == "__main__":
-    main()

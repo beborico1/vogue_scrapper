@@ -7,14 +7,13 @@ This module provides the base handler class with:
 - Core API methods
 """
 
-import time
 from typing import List, Dict, Optional, Any
 from selenium.webdriver.remote.webdriver import WebDriver
 from logging import Logger
 
-from ...config.settings import PAGE_LOAD_WAIT
 from ...exceptions.errors import ScraperError, ValidationError
 from ...utils.storage.data_storage_handler import DataStorageHandler
+from ...utils.wait_utils import wait_for_page_load
 from .slideshow_navigator import VogueSlideshowNavigator
 from .look_tracker import VogueLookTracker
 from .gallery_handler import VogueGalleryHandler
@@ -108,7 +107,9 @@ class VogueImagesBaseHandler:
         """Navigate to slideshow view with retry capability."""
         try:
             self.driver.get(self.session_manager.get_show_url())
-            time.sleep(PAGE_LOAD_WAIT)
+            
+            # Use wait_for_page_load
+            wait_for_page_load(self.driver)
 
             from .operation_handler import retry_operation
 

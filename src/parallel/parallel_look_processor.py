@@ -7,7 +7,6 @@ implementing a specialized scraper for parallel look extraction.
 
 import threading
 import traceback
-import time
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 import concurrent.futures
@@ -19,6 +18,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.remote.webdriver import WebDriver
 
 from src.utils.driver import setup_chrome_driver
+from src.utils.wait_utils import wait_for_page_load, wait_for_url_change, wait_for_element_presence
 from .parallel_look_processor_worker import process_single_look, extract_look_images
 
 
@@ -48,6 +48,9 @@ class ParallelLookScraper:
         # Create an instance of the regular scraper for navigation
         from src.handlers.slideshow.main_scrapper import VogueSlideshowScraper
         self.base_scraper = VogueSlideshowScraper(driver, logger, storage_handler)
+        
+        # Get the slideshow navigator from the base scraper
+        self.slideshow_navigator = self.base_scraper.slideshow_navigator
     
     def scrape_designer_slideshow_parallel(self, 
                                           designer_url: str, 
@@ -177,13 +180,13 @@ class ParallelLookScraper:
         """
         # Reuse the total looks method from the base scraper
         return self.base_scraper._get_total_looks()
-    
+
     def _scan_all_look_urls(self, total_looks: int) -> Dict[int, str]:
         """
-        Scan through all looks to collect their URLs.
+        Scan through all looks to collect their URLs efficiently.
         
-        This allows us to process looks in parallel without needing to navigate
-        sequentially through the slideshow for each look.
+        This method uses an optimized approach to get all look URLs at once
+        without navigating through each one sequentially.
         
         Args:
             total_looks: Total number of looks to scan
@@ -191,35 +194,53 @@ class ParallelLookScraper:
         Returns:
             Dict mapping look numbers to their URLs
         """
-        look_urls = {}
-        current_look = 1
+        # Use the slideshow navigator's efficient URL extraction method
+        look_urls = self.slideshow_navigator.extract_all_look_urls(total_looks)
         
-        try:
-            # Reset to first look
-            self.driver.get(self.driver.current_url.split("#")[0] + "#1")
-            time.sleep(2)
+        # If that failed, fall back to the old method of navigating through each look
+        if not look_urls:
+            self.logger.warning("Efficient URL extraction failed, falling back to sequential navigation")
+            look_urls = {}
+            current_look = 1
             
-            while current_look <= total_looks:
-                # Get current URL with fragment identifier
-                current_url = self.driver.current_url
-                look_urls[current_look] = current_url
+            try:
+                # Reset to first look
+                base_url = self.driver.current_url.split("#")[0]
+                first_look_url = base_url + "#1"
+                self.driver.get(first_look_url)
                 
-                self.logger.info(f"Collected URL for look {current_look}: {current_url}")
+                # Wait for page to load instead of using time.sleep
+                wait_for_page_load(self.driver)
                 
-                if current_look < total_looks:
-                    # Navigate to next look
-                    if not self._navigate_to_next_look():
-                        self.logger.error(f"Failed to navigate to next look after {current_look}")
-                        break
-                
-                current_look += 1
+                while current_look <= total_looks:
+                    # Get current URL with fragment identifier
+                    current_url = self.driver.current_url
+                    look_urls[current_look] = current_url
+                    
+                    self.logger.info(f"Collected URL for look {current_look}: {current_url}")
+                    
+                    if current_look < total_looks:
+                        # Save the current URL before navigation
+                        before_url = self.driver.current_url
+                        
+                        # Navigate to next look
+                        if not self.slideshow_navigator.click_next():
+                            self.logger.error(f"Failed to navigate to next look after {current_look}")
+                            break
+                        
+                        # Wait for URL to change, indicating successful navigation
+                        url_changed = wait_for_url_change(self.driver, before_url)
+                        if not url_changed:
+                            self.logger.error(f"URL did not change after clicking next for look {current_look}")
+                            break
+                    
+                    current_look += 1
             
-            return look_urls
-            
-        except Exception as e:
-            self.logger.error(f"Error scanning look URLs: {str(e)}")
-            return look_urls
-    
+            except Exception as e:
+                self.logger.error(f"Error scanning look URLs: {str(e)}")
+        
+        return look_urls
+
     def _navigate_to_next_look(self) -> bool:
         """
         Navigate to the next look in the slideshow.

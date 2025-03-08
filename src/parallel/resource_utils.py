@@ -1,13 +1,14 @@
+# src/parallel/resource_utils.py
 """Resource monitoring utilities for parallel processing.
 
 This module provides utilities for monitoring CPU and memory usage
 during parallel processing operations.
 """
 
-import time
 import threading
 import logging
 from typing import Dict, List, Optional, Any
+import time
 
 
 def monitor_resources(pid: int, stop_event: threading.Event, interval: float = 0.5) -> Dict[str, List[float]]:
@@ -32,7 +33,7 @@ def monitor_resources(pid: int, stop_event: threading.Event, interval: float = 0
         
         start_time = time.time()
         
-        while not stop_event.is_set():
+        while not stop_event.wait(interval):  # Use wait instead of set+sleep for cleaner polling
             try:
                 # Get CPU and memory usage
                 cpu_percent = process.cpu_percent(interval=0.1)
@@ -42,9 +43,6 @@ def monitor_resources(pid: int, stop_event: threading.Event, interval: float = 0
                 cpu_usage.append(cpu_percent)
                 memory_usage.append(memory_percent)
                 timestamps.append(time.time() - start_time)
-                
-                # Sleep briefly
-                time.sleep(interval)
                 
             except Exception:
                 # Process might have ended
@@ -138,7 +136,7 @@ class ResourceMonitor:
             
             start_time = time.time()
             
-            while not self.stop_event.is_set():
+            while not self.stop_event.wait(0.5):  # Use wait instead of set+sleep
                 try:
                     # Get CPU and memory usage
                     cpu_percent = process.cpu_percent(interval=0.1)
@@ -148,9 +146,6 @@ class ResourceMonitor:
                     cpu_usage.append(cpu_percent)
                     memory_usage.append(memory_percent)
                     timestamps.append(time.time() - start_time)
-                    
-                    # Sleep briefly
-                    time.sleep(0.5)
                     
                 except Exception as e:
                     if self.logger:

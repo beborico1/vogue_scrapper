@@ -1,12 +1,14 @@
-# handlers/auth.py
+# src/handlers/auth.py
 """Authentication handling for Vogue Runway scraper."""
 
-import time
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 from ..config.settings import AUTH_WAIT, PAGE_LOAD_WAIT, ELEMENT_WAIT, SELECTORS
 from ..exceptions.errors import AuthenticationError, ElementNotFoundError
+from ..utils.wait_utils import wait_for_page_load, wait_for_url_change
 
 
 class VogueAuthHandler:
@@ -24,6 +26,9 @@ class VogueAuthHandler:
 
         try:
             self.driver.get(auth_url)
+            # Wait for document to finish loading
+            wait_for_page_load(self.driver, timeout=PAGE_LOAD_WAIT)
+            
             current_url = self.driver.current_url
             self.logger.info(f"Initial navigation complete. Current URL: {current_url}")
 
@@ -52,25 +57,34 @@ class VogueAuthHandler:
         last_url = self.driver.current_url
 
         while redirect_count < max_redirects:
-            time.sleep(AUTH_WAIT)
-            current_url = self.driver.current_url
-
-            if current_url == last_url:
+            try:
+                # Wait for URL to change (indicating a redirect)
+                if wait_for_url_change(self.driver, last_url, timeout=AUTH_WAIT):
+                    current_url = self.driver.current_url
+                    self.logger.info(f"Redirect {redirect_count + 1}: {current_url}")
+                    last_url = current_url
+                    redirect_count += 1
+                    
+                    # Wait for page to load after redirect
+                    wait_for_page_load(self.driver, timeout=PAGE_LOAD_WAIT)
+                else:
+                    # No more redirects happening
+                    break
+            except TimeoutException:
+                # No more redirects happening
                 break
-
-            self.logger.info(f"Redirect {redirect_count + 1}: {current_url}")
-            last_url = current_url
-            redirect_count += 1
 
         return True
 
     def _handle_login_form(self):
         """Handle Condé Nast login form."""
         try:
-            login_form = self.driver.find_element(By.CSS_SELECTOR, "form[action*='condenast']")
-            if login_form:
-                raise AuthenticationError("Manual authentication required")
-        except NoSuchElementException:
+            # Wait for the login form to appear
+            WebDriverWait(self.driver, timeout=ELEMENT_WAIT).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "form[action*='condenast']"))
+            )
+            raise AuthenticationError("Manual authentication required")
+        except TimeoutException:
             self.logger.error("Unable to detect login form")
 
     def verify_authentication(self) -> bool:
@@ -78,7 +92,9 @@ class VogueAuthHandler:
         try:
             test_url = f"{self.base_url}/fashion-shows"
             self.driver.get(test_url)
-            time.sleep(PAGE_LOAD_WAIT)
+            
+            # Wait for page to load
+            wait_for_page_load(self.driver, timeout=PAGE_LOAD_WAIT)
 
             if self._check_paywall_indicators():
                 return False
@@ -94,23 +110,29 @@ class VogueAuthHandler:
         paywall_indicators = ["subscribe-wall", "paywall", "subscription-prompt"]
         for indicator in paywall_indicators:
             try:
-                element = self.driver.find_element(
-                    By.CSS_SELECTOR, f"[class*='{indicator}'], [id*='{indicator}']"
+                # Use a short timeout for checking paywall indicators
+                element = WebDriverWait(self.driver, timeout=2).until(
+                    EC.presence_of_element_located((
+                        By.CSS_SELECTOR, f"[class*='{indicator}'], [id*='{indicator}']"
+                    ))
                 )
                 if element.is_displayed():
                     self.logger.warning(f"Found paywall indicator: {indicator}")
                     return True
-            except NoSuchElementException:
+            except (NoSuchElementException, TimeoutException):
                 continue
         return False
 
     def _verify_authenticated_content(self) -> bool:
         """Verify presence of authenticated content."""
         try:
-            designer_items = self.driver.find_elements(By.CLASS_NAME, SELECTORS["designer_item"])
+            # Wait for designer items to appear (indicates authenticated content)
+            designer_items = WebDriverWait(self.driver, timeout=ELEMENT_WAIT).until(
+                EC.presence_of_all_elements_located((By.CLASS_NAME, SELECTORS["designer_item"]))
+            )
             if designer_items:
                 self.logger.info("Found authenticated content")
                 return True
-        except NoSuchElementException:
+        except (NoSuchElementException, TimeoutException):
             self.logger.warning("No authenticated content found")
         return False

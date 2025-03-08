@@ -19,7 +19,7 @@ from pathlib import Path
 BASE_URL: str = "https://www.vogue.com"
 FASHION_SHOWS_URL: str = "https://www.vogue.com/fashion-shows"
 AUTH_URL: str = (
-    "https://link.condenast.com/click/67be6f837ce6c9df9e0da0fe/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9NGVjZDdmMTEtYmM1NS00NjYwLTg3ZWYtNjdlYThkNmRjNWU0LjE3NDA1MzM2MjgwMzUmeGlkPWExZWJhMTRhLTNlNmQtNGJjOC1hNjIyLTJhMWVkMDk3Yzk1MiZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkZmYXNoaW9uLXNob3dzJTJGZmFsbC0xOTg4LXJlYWR5LXRvLXdlYXIlM0Zfc3AlM0Q0ZWNkN2YxMS1iYzU1LTQ2NjAtODdlZi02N2VhOGQ2ZGM1ZTQuMTc0MDUzMzYyODAzNSUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9VkVSU09fTkFWSUdBVElPTiZjbGllbnRfaWQ9Y29uZGVuYXN0LmlkZW50aXR5LmZiYzkwOTZkYzYxZjliNzljNWFjNGM4NTk5OGRhMDc1JnJlZGlyZWN0X3VyaT1odHRwcyUzQSUyRiUyRnd3dy52b2d1ZS5jb20lMkZhdXRoJTJGY29tcGxldGUmcmVzcG9uc2VfdHlwZT1jb2RlJmZpcnN0X3RpbWVfc2lnbl9pbj11bmRlZmluZWQmY29kZT1kYTJkNmRmODQxNjNhNmQyMDI1MDdhNzFkMmY3ZDdkNTA2YjI4OWRlODUwYjIwNDU3ZThkOWNjZDg0NDliZjgw/678e7581a88d545cd703e31fC4894e136"
+    "https://link.condenast.com/click/67cc8cc865724b7ed90b0c1b/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9NGVjZDdmMTEtYmM1NS00NjYwLTg3ZWYtNjdlYThkNmRjNWU0LjE3NDE0NTg2MjMwNzgmeGlkPWExZWJhMTRhLTNlNmQtNGJjOC1hNjIyLTJhMWVkMDk3Yzk1MiZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkZmYXNoaW9uLXNob3dzJTJGZmFsbC0xOTg4LXJlYWR5LXRvLXdlYXIlM0Zfc3AlM0Q0ZWNkN2YxMS1iYzU1LTQ2NjAtODdlZi02N2VhOGQ2ZGM1ZTQuMTc0MTQ1ODYyMzA3OCUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9VkVSU09fTkFWSUdBVElPTiZjbGllbnRfaWQ9Y29uZGVuYXN0LmlkZW50aXR5LmZiYzkwOTZkYzYxZjliNzljNWFjNGM4NTk5OGRhMDc1JnJlZGlyZWN0X3VyaT1odHRwcyUzQSUyRiUyRnd3dy52b2d1ZS5jb20lMkZhdXRoJTJGY29tcGxldGUmcmVzcG9uc2VfdHlwZT1jb2RlJmZpcnN0X3RpbWVfc2lnbl9pbj11bmRlZmluZWQmY29kZT0zOGM2ZWFhY2VhNDcwMmMzZmRiNmRiZTYzYjQ1OTYxYjFkYmU1MzcwMGZiZjA1ZGVjOWE1ZWRiYTY2YzRiNWY1/678e7581a88d545cd703e31fC9f39376c"
 )
 
 
@@ -141,9 +141,14 @@ class Config:
         self.storage = StorageConfig()
         self.output_dir = os.getenv("VOGUE_OUTPUT_DIR", "data")
         
+        # Add base URLs
+        self.BASE_URL = BASE_URL
+        self.FASHION_SHOWS_URL = FASHION_SHOWS_URL
+        self.AUTH_URL = AUTH_URL
+        
         # Load environment variables for configuration
         self._load_from_env()
-
+        
     def _load_from_env(self) -> None:
         """Load configuration from environment variables."""
         # Storage mode

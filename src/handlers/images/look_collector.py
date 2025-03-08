@@ -10,8 +10,15 @@ This module handles collecting and processing individual looks with:
 
 from typing import List, Dict, Optional
 from logging import Logger
+import threading
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 from ...utils.storage.data_storage_handler import DataStorageHandler
+from ...utils.wait_utils import wait_for_page_load, wait_for_element_presence
 from .session_manager import ImageSessionManager
 from .gallery_handler import VogueGalleryHandler
 from .slideshow_navigator import VogueSlideshowNavigator
@@ -49,9 +56,10 @@ class LookCollector:
         self.storage = storage_handler
         self.season_index = season_index
         self.designer_index = designer_index
+        self.driver = gallery_handler.driver
 
     def collect_all_looks(self, total_looks: int) -> List[Dict[str, str]]:
-        """Collect images for all looks with progress tracking.
+        """Collect images for all looks with faster processing.
 
         Args:
             total_looks: Total number of looks to process
@@ -60,37 +68,80 @@ class LookCollector:
             List[Dict[str, str]]: List of all collected images
         """
         all_images = []
-        current_look = 1
+        
+        # First try to get all look URLs at once for efficient processing
+        look_urls = self.slideshow_navigator.extract_all_look_urls(total_looks)
+        
+        if look_urls and len(look_urls) > 0:
+            self.logger.info(f"Using fast extraction method for {len(look_urls)} looks")
+            
+            # Process look URLs in sequence but without repeated navigation
+            for look_number in sorted(look_urls.keys()):
+                if self.session_manager.is_look_processed(look_number):
+                    self.logger.info(f"Look {look_number} already processed, skipping")
+                    continue
+                    
+                try:
+                    # Navigate to the look URL directly
+                    self.logger.info(f"Processing look {look_number}/{total_looks}")
+                    self.driver.get(look_urls[look_number])
+                    
+                    # Use wait_for_page_load instead
+                    wait_for_page_load(self.driver, timeout=0.5)
+                    
+                    # Collect images for this look
+                    images = self.gallery_handler.get_images_for_current_look()
+                    
+                    if images:
+                        all_images.extend(images)
+                        
+                        # Store the images with validation
+                        if self._store_look_images(look_number, images):
+                            self.session_manager.mark_look_processed(look_number)
+                        else:
+                            self.session_manager.mark_look_failed(look_number)
+                    else:
+                        self.session_manager.mark_look_failed(look_number)
+                        
+                except Exception as e:
+                    self.logger.error(f"Error processing look {look_number}: {str(e)}")
+                    self.session_manager.mark_look_failed(look_number)
+            
+        else:
+            # Fall back to the original sequential method
+            self.logger.info("Fast URL extraction failed, using sequential method")
+            current_look = 1
+            
+            while current_look <= total_looks:
+                # Original sequential method here
+                if self.session_manager.is_look_processed(current_look):
+                    self.logger.info(f"Look {current_look} already processed, skipping")
+                    current_look += 1
+                    continue
 
-        while current_look <= total_looks:
-            if self.session_manager.is_look_processed(current_look):
-                self.logger.info(f"Look {current_look} already processed, skipping")
-                current_look += 1
-                continue
+                try:
+                    self.logger.info(f"Processing look {current_look}/{total_looks}")
 
-            try:
-                self.logger.info(f"Processing look {current_look}/{total_looks}")
+                    images = self._process_single_look(current_look)
+                    if images:
+                        all_images.extend(images)
+                        self.session_manager.mark_look_processed(current_look)
+                    else:
+                        self.session_manager.mark_look_failed(current_look)
 
-                images = self._process_single_look(current_look)
-                if images:
-                    all_images.extend(images)
-                    self.session_manager.mark_look_processed(current_look)
-                else:
+                    if current_look < total_looks:
+                        if not self._navigate_to_next_look():
+                            break
+
+                except Exception as e:
+                    self.logger.error(f"Error processing look {current_look}: {str(e)}")
                     self.session_manager.mark_look_failed(current_look)
 
-                if current_look < total_looks:
-                    if not self._navigate_to_next_look():
-                        break
-
-            except Exception as e:
-                self.logger.error(f"Error processing look {current_look}: {str(e)}")
-                self.session_manager.mark_look_failed(current_look)
-
-            current_look += 1
+                current_look += 1
 
         self.session_manager.log_collection_summary(total_looks)
         return all_images
-
+    
     def _process_single_look(self, look_number: int) -> Optional[List[Dict[str, str]]]:
         """Process a single look with validation and storage.
 

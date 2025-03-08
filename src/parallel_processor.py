@@ -78,8 +78,9 @@ class ParallelProcessingManager:
         """Initialize driver pool and storage handler."""
         self.logger.info("Initializing resources for parallel processing")
         
-        # Initialize storage
-        self.storage = StorageFactory.create_storage_handler(self.checkpoint_file)
+        # Initialize storage if not already set
+        if self.storage is None:
+            self.storage = StorageFactory.create_storage_handler(self.checkpoint_file)
         
         # Initialize driver pool based on mode
         if self.mode == "multi-designer" or self.mode == "multi-season":
@@ -159,6 +160,11 @@ class ParallelProcessingManager:
         Returns:
             Dict containing processing results and statistics
         """
+        # Ensure storage is initialized
+        if self.storage is None:
+            self.logger.error("Storage handler is not initialized")
+            self.initialize_resources()
+            
         return process_multiple_seasons_parallel(
             self, seasons, self.driver_pool, self.storage, self.max_workers, self.logger
         )
@@ -173,6 +179,11 @@ class ParallelProcessingManager:
         Returns:
             Dict containing processing results and statistics
         """
+        # Ensure storage is initialized
+        if self.storage is None:
+            self.logger.error("Storage handler is not initialized")
+            self.initialize_resources()
+            
         return process_designers_parallel(
             self, season, self.driver_pool, self.storage, self.max_workers, 
             self.worker_status, self.status_lock, self.logger
@@ -196,6 +207,11 @@ class ParallelProcessingManager:
         Returns:
             Dict containing processing results and statistics
         """
+        # Ensure storage is initialized
+        if self.storage is None:
+            self.logger.error("Storage handler is not initialized")
+            self.initialize_resources()
+            
         from src.parallel.processor_looks import process_looks_parallel
         return process_looks_parallel(
             self, designer_url, season_index, designer_index,

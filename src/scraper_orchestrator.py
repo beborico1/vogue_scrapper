@@ -1,4 +1,4 @@
-"""Scraper orchestrator for Vogue Runway.
+"""Scraper orchestrator for Vogue Runway with improved waiting mechanisms.
 
 This module contains the main scraper orchestrator that supports both sequential
 and parallel processing modes with robust error handling and checkpointing.
@@ -6,19 +6,27 @@ and parallel processing modes with robust error handling and checkpointing.
 
 import os
 import sys
+import threading
 from typing import Dict, Optional, List, Tuple, Any
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+import queue
 
-from src.scraper import VogueScraper
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+
 from src.utils.driver import setup_chrome_driver
 from src.utils.logging import setup_logger
 from src.utils.storage.storage_factory import StorageFactory
 from src.config.settings import config, BASE_URL
 from src.exceptions.errors import ScraperError, StorageError
+from src.handlers.auth import VogueAuthHandler
 from src.handlers.slideshow.main_scrapper import VogueSlideshowScraper
 from src.utils.storage.progress_tracker import ProgressTracker
 from src.parallel_processor import ParallelProcessingManager
+from src.handlers.images.operation_handler import retry_operation, with_retry
 from src.checkpoint_manager import find_latest_checkpoint
 
 
@@ -69,15 +77,24 @@ class VogueRunwayScraper:
         self.driver = None
         self.scraper = None
         self.current_file = None
+        
+        # Thread coordination
+        self.processing_queue = queue.Queue()
+        self.result_queue = queue.Queue()
+        self.error_queue = queue.Queue()
+        self.completion_event = threading.Event()
 
+    @with_retry(max_retries=3, retry_delay=2)
     def initialize_scraper(self) -> None:
-        """Initialize the Selenium driver and VogueScraper.
+        """Initialize the Selenium driver and VogueScraper with retry capability.
 
         Raises:
             ScraperError: If initialization fails
         """
         try:
             self.driver = setup_chrome_driver()
+            
+            from src.scraper import VogueScraper
             self.scraper = VogueScraper(
                 driver=self.driver,
                 logger=self.logger,
@@ -119,31 +136,6 @@ class VogueRunwayScraper:
             self.logger.error(f"Storage validation error: {str(e)}")
             return False
 
-    def _get_season_index(self, season: Dict[str, str]) -> Optional[int]:
-        """Get index of season in storage or None if not found.
-
-        Args:
-            season: Season data containing season and year
-
-        Returns:
-            Index of the season or None if not found
-        """
-        try:
-            if not self.current_file:
-                return None
-
-            current_data = self.storage.read_data()
-            for i, stored_season in enumerate(current_data["seasons"]):
-                if (
-                    stored_season["season"] == season["season"]
-                    and stored_season["year"] == season["year"]
-                ):
-                    return i
-            return None
-        except StorageError as e:
-            self.logger.error(f"Error getting season index: {str(e)}")
-            return None
-
     def process_season(self, season: Dict[str, str]) -> None:
         """Process a single season's data with parallel processing support.
         
@@ -181,7 +173,12 @@ class VogueRunwayScraper:
                             mode="multi-designer",
                             checkpoint_file=self.current_file
                         )
-                        self.parallel_manager.initialize_resources()
+                    
+                    # Ensure resources are properly initialized
+                    self.parallel_manager.initialize_resources()
+                    
+                    # Explicitly set the storage handler to ensure it's available
+                    self.parallel_manager.storage = self.storage
                     
                     result = self.parallel_manager.process_designers_parallel(season)
                     self.logger.info(f"Parallel processing result: {result['completed_designers']} of {result['processed_designers']} designers completed")
@@ -189,7 +186,18 @@ class VogueRunwayScraper:
                 else:
                     # Sequential processing of designers
                     self.logger.info(f"Fetching designers for season: {season['url']}")
-                    designers = self.scraper.get_designers_for_season(season["url"])
+                    
+                    # Use retry for getting designers
+                    designers = retry_operation(
+                        self.logger,
+                        lambda: self.scraper.get_designers_for_season(season["url"]),
+                        f"fetch designers for season {season['season']} {season['year']}"
+                    )
+                    
+                    if not designers:
+                        self.logger.warning(f"No designers found for season: {season['url']}")
+                        return
+                        
                     self.logger.info(f"Total designers found: {len(designers)}")
 
                     # Initialize slideshow scraper and progress tracker
@@ -241,6 +249,8 @@ class VogueRunwayScraper:
                                         checkpoint_file=self.current_file
                                     )
                                     self.parallel_manager.initialize_resources()
+                                    # Explicitly set the storage handler
+                                    self.parallel_manager.storage = self.storage
                                 
                                 result = self.parallel_manager.process_looks_parallel(
                                     designer["url"],
@@ -250,12 +260,16 @@ class VogueRunwayScraper:
                                 success = result["processed_looks"] > 0
                                 self.logger.info(f"Processed {result['processed_looks']} looks in parallel")
                             else:
-                                # Scrape the designer's slideshow sequentially
-                                success = slideshow_scraper.scrape_designer_slideshow(
-                                    designer["url"],
-                                    season_index,
-                                    designer_index,
-                                    progress_tracker,  # Pass progress tracker to slideshow scraper
+                                # Use retry for scraping the designer's slideshow
+                                success = retry_operation(
+                                    self.logger,
+                                    lambda: slideshow_scraper.scrape_designer_slideshow(
+                                        designer["url"],
+                                        season_index,
+                                        designer_index,
+                                        progress_tracker
+                                    ),
+                                    f"scrape slideshow for {designer['name']}"
                                 )
 
                             if not success:
@@ -288,3 +302,174 @@ class VogueRunwayScraper:
             if hasattr(self.storage, "_active_session") and self.storage._active_session:
                 self.storage._end_designer_session()
             raise ScraperError(f"Season processing failed: {str(e)}")
+            
+    def _get_season_index(self, season: Dict[str, str]) -> Optional[int]:
+        """Get index of season in storage or None if not found.
+
+        Args:
+            season: Season data containing season and year
+
+        Returns:
+            Index of the season or None if not found
+        """
+        try:
+            if not self.current_file:
+                return None
+
+            current_data = self.storage.read_data()
+            for i, stored_season in enumerate(current_data["seasons"]):
+                if (
+                    stored_season["season"] == season["season"]
+                    and stored_season["year"] == season["year"]
+                ):
+                    return i
+            return None
+        except StorageError as e:
+            self.logger.error(f"Error getting season index: {str(e)}")
+            return None
+            
+    def resume_from_checkpoint(self) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+        """Resume scraping from last checkpoint in storage.
+
+        Returns:
+            Tuple of (season_index, season_data) or (None, None) if no checkpoint
+        """
+        try:
+            current_data = self.storage.read_data()
+
+            # Find first incomplete season
+            for season_index, season in enumerate(current_data["seasons"]):
+                if not season.get("completed", False):
+                    self.logger.info(f"Resuming from season: {season['season']} {season['year']}")
+                    return season_index, season
+
+            # All seasons completed
+            self.logger.info("All seasons completed, no checkpoint needed")
+            return None, None
+
+        except Exception as e:
+            self.logger.error(f"Error reading checkpoint: {str(e)}")
+            return None, None
+
+    def run(self) -> None:
+        """Execute the main scraping process with parallel processing support.
+
+        This method coordinates the entire scraping process, including:
+        - Storage initialization and validation
+        - Scraper setup and authentication
+        - Automatic checkpoint management
+        - Parallel or sequential season processing
+        - Progress tracking and error handling
+        """
+        self.logger.info("=== Starting Vogue Scraper ===")
+
+        try:
+            # Initialize storage
+            self.current_file = self.storage.initialize_file()
+
+            # Validate storage state
+            if not self.validate_storage():
+                raise StorageError("Storage validation failed")
+
+            # Initialize scraper and authenticate
+            self.initialize_scraper()
+            
+            # Authenticate using retry
+            auth_success = retry_operation(
+                self.logger,
+                lambda: self.scraper.authenticate(config.AUTH_URL),
+                "authentication"
+            )
+            
+            if not auth_success:
+                raise ScraperError("Failed to authenticate with Vogue")
+
+            # Check for existing progress
+            checkpoint = self.resume_from_checkpoint()
+            if checkpoint[0] is not None:
+                start_index = checkpoint[0]
+                self.logger.info("Resuming from previous checkpoint")
+            else:
+                start_index = 0
+                # Get all seasons if starting fresh
+                seasons = retry_operation(
+                    self.logger,
+                    self.scraper.get_seasons_list,
+                    "fetching seasons list"
+                )
+                
+                if not seasons:
+                    self.logger.error("No seasons found")
+                    return
+
+                self.logger.info(f"Found {len(seasons)} seasons")
+
+                # Save all season metadata
+                for season in seasons:
+                    # Additional filter to avoid non-fashion show/article pages
+                    if not any(word in season["season"] for word in ["MORE FROM", "SEE MORE", "ARTICLE", "BLOG"]):
+                        # Skip URLs that appear to be articles
+                        if "/article/" in season["url"]:
+                            self.logger.info(f"Skipping article URL: {season['url']}")
+                            continue
+                        self.storage.update_data(season_data=season)
+
+            # Process seasons based on mode
+            current_data = self.storage.read_data()
+            seasons_to_process = current_data["seasons"][start_index:]
+            
+            if self.parallel and self.parallel_mode == "multi-season":
+                # Process all remaining seasons in parallel
+                if not self.parallel_manager:
+                    self.parallel_manager = ParallelProcessingManager(
+                        max_workers=self.max_workers,
+                        mode="multi-season",
+                        checkpoint_file=self.current_file
+                    )
+                
+                # Ensure resources are properly initialized
+                self.parallel_manager.initialize_resources()
+                
+                # Explicitly set the storage handler
+                self.parallel_manager.storage = self.storage
+                
+                result = self.parallel_manager.process_seasons_parallel(seasons_to_process)
+                self.logger.info(f"Parallel processing result: {result['processed_seasons']} seasons processed")
+            else:
+                # Process seasons sequentially
+                for season_index in range(start_index, len(current_data["seasons"])):
+                    try:
+                        season = current_data["seasons"][season_index]
+                        self.process_season(season)
+                        # Save progress after each season
+                        self.storage.save_progress()
+                    except ScraperError as e:
+                        self.logger.error(str(e))
+                        continue
+
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {str(e)}")
+
+        finally:
+            # Clean up parallel resources if used
+            if self.parallel and self.parallel_manager:
+                self.parallel_manager.cleanup_resources()
+            
+            # Clean up driver
+            if self.driver:
+                self.driver.quit()
+
+            # Save final progress
+            if self.storage and hasattr(self.storage, "save_progress"):
+                self.storage.save_progress()
+
+            # Log final status if possible
+            try:
+                if self.storage:
+                    status = self.storage.get_status()
+                    if status and status.get("progress"):
+                        self.logger.info(f"Final progress: {status['progress']}")
+            except Exception as e:
+                self.logger.error(f"Error logging final status: {str(e)}")
+
+        self.logger.info("=== Vogue Scraper Complete ===")
