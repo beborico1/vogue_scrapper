@@ -1,0 +1,1 @@
+# Ultrafast Vogue Scraper package

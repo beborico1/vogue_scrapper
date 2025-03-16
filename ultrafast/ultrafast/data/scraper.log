@@ -1,0 +1,270 @@
+2025-03-15 16:19:54,019 - UltrafastVogueScraper - INFO - Starting Ultrafast Vogue Scraper
+2025-03-15 16:19:54,029 - ultrafast.src.utils.storage - INFO - Connected to Redis at localhost:6379/0
+2025-03-15 16:19:54,029 - UltrafastVogueScraper - INFO - === Starting Ultrafast Vogue Scraper ===
+2025-03-15 16:19:54,029 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:19:54,166 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:19:54,381 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:19:54,502 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:19:55,970 - UltrafastVogueScraper - INFO - Starting authentication process...
+2025-03-15 16:19:57,036 - UltrafastVogueScraper - INFO - Navigating to auth URL: https://link.condenast.com/click/67d534dbbb8ce38f3a09e5e0/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9MTk0MTg4NjgtYWFhZC00MmZkLTgxZjktNzE2YjI1OTg1ZWJhLjE3NDE4NzU4ODExNjAmeGlkPWU1MzIyNWFkLWU1M2QtNDI4MS1hNGFlLTM4NGM2OGIwM2ZlYSZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkYlM0Zfc3AlM0QxOTQxODg2OC1hYWFkLTQyZmQtODFmOS03MTZiMjU5ODVlYmEuMTc0MTg3NTg4MTE2MCUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9T0lEQ19NQUdJQ19MSU5LX0VSUk9SJmNsaWVudF9pZD1jb25kZW5hc3QuaWRlbnRpdHkuZmJjOTA5NmRjNjFmOWI3OWM1YWM0Yzg1OTk4ZGEwNzUmcmVkaXJlY3RfdXJpPWh0dHBzJTNBJTJGJTJGd3d3LnZvZ3VlLmNvbSUyRmF1dGglMkZjb21wbGV0ZSZyZXNwb25zZV90eXBlPWNvZGUmZmlyc3RfdGltZV9zaWduX2luPXVuZGVmaW5lZCZjb2RlPWM3NjQ5N2U0MTNhM2E5ZWQzNjNiNGViNThiZGU4YzI3MThhYjJkNzczNzhhOWZmMjQ2ZTQ2YjY5ZDViYTAyMmY/678e7581a88d545cd703e31fC4c11e561
+2025-03-15 16:20:01,531 - urllib3.connectionpool - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(54, 'Connection reset by peer')': /session/2fe9a1204b67b7cb69b36c350a8c5f33
+2025-03-15 16:20:01,533 - urllib3.connectionpool - WARNING - Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x10240ff10>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/2fe9a1204b67b7cb69b36c350a8c5f33
+2025-03-15 16:20:01,536 - urllib3.connectionpool - WARNING - Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x10240fbb0>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/2fe9a1204b67b7cb69b36c350a8c5f33
+2025-03-15 16:22:03,805 - UltrafastVogueScraper - INFO - Starting Ultrafast Vogue Scraper
+2025-03-15 16:22:03,810 - ultrafast.src.utils.storage - INFO - Connected to Redis at localhost:6379/0
+2025-03-15 16:22:03,810 - UltrafastVogueScraper - INFO - === Starting Ultrafast Vogue Scraper ===
+2025-03-15 16:22:03,810 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:22:03,961 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:22:04,142 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:22:04,273 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:22:05,545 - UltrafastVogueScraper - INFO - Starting authentication process...
+2025-03-15 16:22:16,228 - UltrafastVogueScraper - INFO - Navigating to auth URL: https://link.condenast.com/click/67d5fd7280c8e68b080c00ab/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9NGVjZDdmMTEtYmM1NS00NjYwLTg3ZWYtNjdlYThkNmRjNWU0LjE3NDIwNzcyODQwNTgmeGlkPWExZWJhMTRhLTNlNmQtNGJjOC1hNjIyLTJhMWVkMDk3Yzk1MiZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkYlM0Zfc3AlM0Q0ZWNkN2YxMS1iYzU1LTQ2NjAtODdlZi02N2VhOGQ2ZGM1ZTQuMTc0MjA3NzI4NDA1OCUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9VkVSU09fTkFWSUdBVElPTiZjbGllbnRfaWQ9Y29uZGVuYXN0LmlkZW50aXR5LmZiYzkwOTZkYzYxZjliNzljNWFjNGM4NTk5OGRhMDc1JnJlZGlyZWN0X3VyaT1odHRwcyUzQSUyRiUyRnd3dy52b2d1ZS5jb20lMkZhdXRoJTJGY29tcGxldGUmcmVzcG9uc2VfdHlwZT1jb2RlJmZpcnN0X3RpbWVfc2lnbl9pbj11bmRlZmluZWQmY29kZT1iNzJkZGRlNzY1ZWU1ODdhNmUxZmI5MDExZTUyMGVkNTVhNmQyNmQwMzc3M2Q4YTBiZWUxYzFlNDVkYTY4YmI0/678e7581a88d545cd703e31fC98d83a47
+2025-03-15 16:22:25,286 - UltrafastVogueScraper - INFO - Verifying authentication at: https://www.vogue.com/fashion-shows
+2025-03-15 16:22:50,467 - UltrafastVogueScraper - INFO - Found 51 designer items
+2025-03-15 16:22:50,468 - UltrafastVogueScraper - INFO - Authentication successful
+2025-03-15 16:22:50,468 - UltrafastVogueScraper - INFO - Getting seasons from https://www.vogue.com/fashion-shows
+2025-03-15 16:23:06,580 - UltrafastVogueScraper - WARNING - Error processing navigation section: Message: no such element: Unable to locate element: {"method":"css selector","selector":".NavigationHeadingWrapper-befTuI"}
+  (Session info: chrome=134.0.6998.89); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception
+Stacktrace:
+0   chromedriver                        0x00000001033d5804 cxxbridge1$str$ptr + 2785964
+1   chromedriver                        0x00000001033cdddc cxxbridge1$str$ptr + 2754692
+2   chromedriver                        0x0000000102f21ea8 cxxbridge1$string$len + 92928
+3   chromedriver                        0x0000000102f691d0 cxxbridge1$string$len + 384552
+4   chromedriver                        0x0000000102f5e878 cxxbridge1$string$len + 341200
+5   chromedriver                        0x0000000102faa678 cxxbridge1$string$len + 651984
+6   chromedriver                        0x0000000102f5d35c cxxbridge1$string$len + 335796
+7   chromedriver                        0x000000010339acd4 cxxbridge1$str$ptr + 2545532
+8   chromedriver                        0x000000010339dfa0 cxxbridge1$str$ptr + 2558536
+9   chromedriver                        0x000000010337ad04 cxxbridge1$str$ptr + 2414508
+10  chromedriver                        0x000000010339e800 cxxbridge1$str$ptr + 2560680
+11  chromedriver                        0x000000010336bba0 cxxbridge1$str$ptr + 2352712
+12  chromedriver                        0x00000001033be45c cxxbridge1$str$ptr + 2690820
+13  chromedriver                        0x00000001033be5e4 cxxbridge1$str$ptr + 2691212
+14  chromedriver                        0x00000001033cda50 cxxbridge1$str$ptr + 2753784
+15  libsystem_pthread.dylib             0x00000001970fc2e4 _pthread_start + 136
+16  libsystem_pthread.dylib             0x00000001970f70fc thread_start + 8
+
+2025-03-15 16:23:16,798 - UltrafastVogueScraper - WARNING - Error processing navigation section: Message: no such element: Unable to locate element: {"method":"css selector","selector":".NavigationHeadingWrapper-befTuI"}
+  (Session info: chrome=134.0.6998.89); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception
+Stacktrace:
+0   chromedriver                        0x00000001033d5804 cxxbridge1$str$ptr + 2785964
+1   chromedriver                        0x00000001033cdddc cxxbridge1$str$ptr + 2754692
+2   chromedriver                        0x0000000102f21ea8 cxxbridge1$string$len + 92928
+3   chromedriver                        0x0000000102f691d0 cxxbridge1$string$len + 384552
+4   chromedriver                        0x0000000102f5e878 cxxbridge1$string$len + 341200
+5   chromedriver                        0x0000000102faa678 cxxbridge1$string$len + 651984
+6   chromedriver                        0x0000000102f5d35c cxxbridge1$string$len + 335796
+7   chromedriver                        0x000000010339acd4 cxxbridge1$str$ptr + 2545532
+8   chromedriver                        0x000000010339dfa0 cxxbridge1$str$ptr + 2558536
+9   chromedriver                        0x000000010337ad04 cxxbridge1$str$ptr + 2414508
+10  chromedriver                        0x000000010339e800 cxxbridge1$str$ptr + 2560680
+11  chromedriver                        0x000000010336bba0 cxxbridge1$str$ptr + 2352712
+12  chromedriver                        0x00000001033be45c cxxbridge1$str$ptr + 2690820
+13  chromedriver                        0x00000001033be5e4 cxxbridge1$str$ptr + 2691212
+14  chromedriver                        0x00000001033cda50 cxxbridge1$str$ptr + 2753784
+15  libsystem_pthread.dylib             0x00000001970fc2e4 _pthread_start + 136
+16  libsystem_pthread.dylib             0x00000001970f70fc thread_start + 8
+
+2025-03-15 16:23:16,799 - UltrafastVogueScraper - ERROR - No seasons found
+2025-03-15 16:39:42,573 - UltrafastVogueScraper - INFO - Starting Ultrafast Vogue Scraper
+2025-03-15 16:39:42,578 - ultrafast.src.utils.storage - INFO - Connected to Redis at localhost:6379/0
+2025-03-15 16:39:42,578 - UltrafastVogueScraper - INFO - === Starting Ultrafast Vogue Scraper ===
+2025-03-15 16:39:42,578 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:39:42,726 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:39:42,869 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:39:42,999 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:39:45,033 - UltrafastVogueScraper - INFO - Starting authentication process...
+2025-03-15 16:39:55,454 - UltrafastVogueScraper - INFO - Navigating to auth URL: https://link.condenast.com/click/67d5fd7280c8e68b080c00ab/aHR0cHM6Ly9pZC5jb25kZW5hc3QuY29tL29pZGMvbWFnaWMtbGluaz9fc3A9NGVjZDdmMTEtYmM1NS00NjYwLTg3ZWYtNjdlYThkNmRjNWU0LjE3NDIwNzcyODQwNTgmeGlkPWExZWJhMTRhLTNlNmQtNGJjOC1hNjIyLTJhMWVkMDk3Yzk1MiZzY29wZT1vcGVuaWQrb2ZmbGluZV9hY2Nlc3Mmc3RhdGU9JTdCJTIycmVkaXJlY3RVUkwlMjIlM0ElMjIlMkYlM0Zfc3AlM0Q0ZWNkN2YxMS1iYzU1LTQ2NjAtODdlZi02N2VhOGQ2ZGM1ZTQuMTc0MjA3NzI4NDA1OCUyMiU3RCZwcm9tcHQ9c2VsZWN0X2FjY291bnQrY29uc2VudCZzb3VyY2U9VkVSU09fTkFWSUdBVElPTiZjbGllbnRfaWQ9Y29uZGVuYXN0LmlkZW50aXR5LmZiYzkwOTZkYzYxZjliNzljNWFjNGM4NTk5OGRhMDc1JnJlZGlyZWN0X3VyaT1odHRwcyUzQSUyRiUyRnd3dy52b2d1ZS5jb20lMkZhdXRoJTJGY29tcGxldGUmcmVzcG9uc2VfdHlwZT1jb2RlJmZpcnN0X3RpbWVfc2lnbl9pbj11bmRlZmluZWQmY29kZT1iNzJkZGRlNzY1ZWU1ODdhNmUxZmI5MDExZTUyMGVkNTVhNmQyNmQwMzc3M2Q4YTBiZWUxYzFlNDVkYTY4YmI0/678e7581a88d545cd703e31fC98d83a47
+2025-03-15 16:40:04,802 - UltrafastVogueScraper - INFO - Verifying authentication at: https://www.vogue.com/fashion-shows
+2025-03-15 16:40:39,985 - UltrafastVogueScraper - INFO - Found navigation elements
+2025-03-15 16:40:39,987 - UltrafastVogueScraper - INFO - Authentication successful
+2025-03-15 16:40:39,987 - UltrafastVogueScraper - ERROR - Static seasons file not found: ultrafast/data/seasons.json
+2025-03-15 16:40:39,987 - UltrafastVogueScraper - INFO - Generating static seasons...
+2025-03-15 16:40:39,991 - UltrafastVogueScraper - ERROR - Error loading static seasons: [Errno 2] No such file or directory: 'ultrafast/data/seasons.json'
+2025-03-15 16:40:39,991 - UltrafastVogueScraper - WARNING - Using hardcoded fallback seasons
+2025-03-15 16:40:39,991 - UltrafastVogueScraper - INFO - Using 2 statically generated seasons
+2025-03-15 16:40:39,999 - ultrafast.src.utils.storage - INFO - Stored 2 seasons in Redis
+2025-03-15 16:40:39,999 - UltrafastVogueScraper - INFO - Processing season 1/2: Fall Ready-to-Wear 2025
+2025-03-15 16:40:39,999 - UltrafastVogueScraper - INFO - Getting collections from https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear
+2025-03-15 16:40:46,996 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:40:50,496 - ultrafast.src.utils.storage - INFO - Stored 325 collections for season https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear
+2025-03-15 16:40:50,497 - UltrafastVogueScraper - INFO - Wrote 325 URLs to ultrafast/data/collections.txt
+2025-03-15 16:40:50,498 - UltrafastVogueScraper - INFO - Found 325 collections for Fall Ready-to-Wear 2025
+2025-03-15 16:40:50,500 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:40:50,500 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:40:50,510 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:40:50,511 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:40:50,671 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:40:50,671 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:40:50,671 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:40:50,671 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:40:50,831 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:40:50,831 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:40:50,832 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:40:51,045 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:40:51,046 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:40:53,254 - UltrafastVogueScraper - INFO - Processing collection: 6397
+2025-03-15 16:40:53,254 - UltrafastVogueScraper - INFO - Processing collection: 16Arlington
+2025-03-15 16:41:28,707 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:41:31,499 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:41:39,282 - UltrafastVogueScraper - INFO - Expanding all sections with Load More buttons
+2025-03-15 16:41:42,057 - UltrafastVogueScraper - INFO - Expanding all sections with Load More buttons
+2025-03-15 16:41:47,575 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:41:48,243 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:41:48,382 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:41:48,502 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:41:49,320 - UltrafastVogueScraper - INFO - No more Load More buttons found after 0 clicks
+2025-03-15 16:41:49,320 - UltrafastVogueScraper - WARNING - Could not find three load more buttons. Only found 0
+2025-03-15 16:41:49,320 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:41:49,840 - UltrafastVogueScraper - INFO - Found 1 gallery sections
+2025-03-15 16:41:49,859 - UltrafastVogueScraper - INFO - Processing section: COLLECTION
+2025-03-15 16:41:49,864 - UltrafastVogueScraper - INFO - Found 1 images in section COLLECTION
+2025-03-15 16:41:49,900 - UltrafastVogueScraper - INFO - Found 1 sections with 1 total looks
+2025-03-15 16:41:49,907 - ultrafast.src.utils.storage - INFO - Stored 1 looks across 1 sections for https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/16arlington
+2025-03-15 16:41:49,907 - UltrafastVogueScraper - INFO - Completed processing collection: 16Arlington
+2025-03-15 16:41:50,076 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:41:50,211 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:41:50,356 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:41:50,495 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:41:50,605 - UltrafastVogueScraper - INFO - Processing collection: 3.1 Phillip Lim
+2025-03-15 16:41:51,351 - UltrafastVogueScraper - INFO - Processing collection: A. Potts
+2025-03-15 16:41:52,102 - UltrafastVogueScraper - INFO - No more Load More buttons found after 0 clicks
+2025-03-15 16:41:52,104 - UltrafastVogueScraper - WARNING - Could not find three load more buttons. Only found 0
+2025-03-15 16:41:52,104 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:41:52,736 - UltrafastVogueScraper - INFO - Found 2 gallery sections
+2025-03-15 16:41:52,766 - UltrafastVogueScraper - INFO - Processing section: COLLECTION
+2025-03-15 16:41:52,779 - UltrafastVogueScraper - INFO - Found 1 images in section COLLECTION
+2025-03-15 16:41:52,972 - UltrafastVogueScraper - INFO - Processing section: DETAILS
+2025-03-15 16:41:56,922 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:41:56,966 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:41:57,170 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:41:57,359 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:41:57,605 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:41:59,699 - UltrafastVogueScraper - INFO - Processing collection: 5000
+2025-03-15 16:42:03,016 - UltrafastVogueScraper - INFO - Found 0 images in section DETAILS
+2025-03-15 16:42:03,018 - UltrafastVogueScraper - INFO - Found 1 sections with 1 total looks
+2025-03-15 16:42:03,447 - ultrafast.src.utils.storage - INFO - Stored 1 looks across 1 sections for https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/6397
+2025-03-15 16:42:04,784 - UltrafastVogueScraper - INFO - Completed processing collection: 6397
+2025-03-15 16:42:06,136 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:42:06,301 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:42:06,473 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:42:06,620 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:42:07,782 - UltrafastVogueScraper - INFO - Processing collection: A.L.C.
+2025-03-15 16:42:32,611 - UltrafastVogueScraper - INFO - Expanding all sections with Load More buttons
+2025-03-15 16:42:38,189 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:42:42,644 - UltrafastVogueScraper - INFO - No more Load More buttons found after 0 clicks
+2025-03-15 16:42:42,644 - UltrafastVogueScraper - WARNING - Could not find three load more buttons. Only found 0
+2025-03-15 16:42:42,644 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:42:43,162 - UltrafastVogueScraper - INFO - Found 1 gallery sections
+2025-03-15 16:42:43,178 - UltrafastVogueScraper - INFO - Processing section: COLLECTION
+2025-03-15 16:42:43,183 - UltrafastVogueScraper - INFO - Found 1 images in section COLLECTION
+2025-03-15 16:42:43,238 - UltrafastVogueScraper - INFO - Found 1 sections with 1 total looks
+2025-03-15 16:42:43,262 - ultrafast.src.utils.storage - INFO - Stored 1 looks across 1 sections for https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/apotts
+2025-03-15 16:42:43,262 - UltrafastVogueScraper - INFO - Completed processing collection: A. Potts
+2025-03-15 16:42:43,659 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:42:43,810 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:42:44,149 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:42:44,277 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:42:45,099 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:42:45,760 - UltrafastVogueScraper - INFO - Processing collection: A.W.A.K.E. Mode
+2025-03-15 16:42:48,752 - UltrafastVogueScraper - INFO - Expanding all sections with Load More buttons
+2025-03-15 16:42:50,614 - UltrafastVogueScraper - ERROR - Error extracting collection looks from https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/3-1-phillip-lim: Message: timeout: Timed out receiving message from renderer: 59.756
+  (Session info: chrome=134.0.6998.89)
+Stacktrace:
+0   chromedriver                        0x0000000100621804 cxxbridge1$str$ptr + 2785964
+1   chromedriver                        0x0000000100619ddc cxxbridge1$str$ptr + 2754692
+2   chromedriver                        0x000000010016dea8 cxxbridge1$string$len + 92928
+3   chromedriver                        0x00000001001583d4 cxxbridge1$string$len + 4140
+4   chromedriver                        0x000000010015814c cxxbridge1$string$len + 3492
+5   chromedriver                        0x0000000100155e64 chromedriver + 188004
+6   chromedriver                        0x0000000100156abc chromedriver + 191164
+7   chromedriver                        0x0000000100164690 cxxbridge1$string$len + 53992
+8   chromedriver                        0x000000010017a3ac cxxbridge1$string$len + 143364
+9   chromedriver                        0x00000001001570f0 chromedriver + 192752
+10  chromedriver                        0x000000010017a194 cxxbridge1$string$len + 142828
+11  chromedriver                        0x00000001001f6914 cxxbridge1$string$len + 652652
+12  chromedriver                        0x00000001001a935c cxxbridge1$string$len + 335796
+13  chromedriver                        0x00000001005e6cd4 cxxbridge1$str$ptr + 2545532
+14  chromedriver                        0x00000001005e9fa0 cxxbridge1$str$ptr + 2558536
+15  chromedriver                        0x00000001005c6d04 cxxbridge1$str$ptr + 2414508
+16  chromedriver                        0x00000001005ea800 cxxbridge1$str$ptr + 2560680
+17  chromedriver                        0x00000001005b7ba0 cxxbridge1$str$ptr + 2352712
+18  chromedriver                        0x000000010060a45c cxxbridge1$str$ptr + 2690820
+19  chromedriver                        0x000000010060a5e4 cxxbridge1$str$ptr + 2691212
+20  chromedriver                        0x0000000100619a50 cxxbridge1$str$ptr + 2753784
+21  libsystem_pthread.dylib             0x00000001970fc2e4 _pthread_start + 136
+22  libsystem_pthread.dylib             0x00000001970f70fc thread_start + 8
+
+2025-03-15 16:42:50,616 - UltrafastVogueScraper - WARNING - No sections found for collection: 3.1 Phillip Lim
+2025-03-15 16:42:51,377 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:42:51,668 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:42:51,802 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:42:51,965 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:42:53,055 - UltrafastVogueScraper - INFO - Processing collection: AGL
+2025-03-15 16:42:55,715 - UltrafastVogueScraper - INFO - Expanding all sections with Load More buttons
+2025-03-15 16:42:58,811 - UltrafastVogueScraper - INFO - No more Load More buttons found after 0 clicks
+2025-03-15 16:42:58,812 - UltrafastVogueScraper - WARNING - Could not find three load more buttons. Only found 0
+2025-03-15 16:42:58,812 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:42:59,338 - UltrafastVogueScraper - INFO - Found 1 gallery sections
+2025-03-15 16:42:59,359 - UltrafastVogueScraper - INFO - Processing section: COLLECTION
+2025-03-15 16:42:59,367 - UltrafastVogueScraper - INFO - Found 1 images in section COLLECTION
+2025-03-15 16:42:59,423 - UltrafastVogueScraper - INFO - Found 1 sections with 1 total looks
+2025-03-15 16:42:59,469 - ultrafast.src.utils.storage - INFO - Stored 1 looks across 1 sections for https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/5000
+2025-03-15 16:42:59,469 - UltrafastVogueScraper - INFO - Completed processing collection: 5000
+2025-03-15 16:43:00,978 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:43:01,176 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:01,315 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:01,469 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:43:02,411 - UltrafastVogueScraper - INFO - Processing collection: ATXV
+2025-03-15 16:43:05,773 - UltrafastVogueScraper - INFO - No more Load More buttons found after 0 clicks
+2025-03-15 16:43:05,773 - UltrafastVogueScraper - WARNING - Could not find three load more buttons. Only found 0
+2025-03-15 16:43:05,773 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:43:06,293 - UltrafastVogueScraper - INFO - Found 1 gallery sections
+2025-03-15 16:43:06,306 - UltrafastVogueScraper - INFO - Processing section: COLLECTION
+2025-03-15 16:43:06,311 - UltrafastVogueScraper - INFO - Found 1 images in section COLLECTION
+2025-03-15 16:43:06,356 - UltrafastVogueScraper - INFO - Found 1 sections with 1 total looks
+2025-03-15 16:43:06,366 - ultrafast.src.utils.storage - INFO - Stored 1 looks across 1 sections for https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/a-l-c
+2025-03-15 16:43:06,367 - UltrafastVogueScraper - INFO - Completed processing collection: A.L.C.
+2025-03-15 16:43:06,945 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:43:07,122 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:07,260 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:08,335 - UltrafastVogueScraper - ERROR - Error extracting collection looks from https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/agl: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-03-15 16:43:08,337 - UltrafastVogueScraper - ERROR - Error extracting collection looks from https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/a-w-a-k-e: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-03-15 16:43:08,396 - UltrafastVogueScraper - WARNING - No sections found for collection: AGL
+2025-03-15 16:43:08,402 - UltrafastVogueScraper - WARNING - No sections found for collection: A.W.A.K.E. Mode
+2025-03-15 16:43:08,413 - urllib3.connectionpool - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a695d0>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/1e9127fea521d23599bc3279f1c70ed2
+2025-03-15 16:43:08,413 - urllib3.connectionpool - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a6a3e0>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/b63b5cf99c4199c8e694769ff4aaf869
+2025-03-15 16:43:08,444 - urllib3.connectionpool - WARNING - Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a694b0>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/1e9127fea521d23599bc3279f1c70ed2
+2025-03-15 16:43:08,450 - urllib3.connectionpool - WARNING - Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a6a080>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/b63b5cf99c4199c8e694769ff4aaf869
+2025-03-15 16:43:08,451 - urllib3.connectionpool - WARNING - Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a68040>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/1e9127fea521d23599bc3279f1c70ed2
+2025-03-15 16:43:08,457 - urllib3.connectionpool - WARNING - Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a69f00>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/b63b5cf99c4199c8e694769ff4aaf869
+2025-03-15 16:43:08,488 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:43:08,492 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:43:08,655 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:08,655 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:08,922 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:08,924 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:09,060 - WDM - INFO - Driver [/Users/beborico/.wdm/drivers/chromedriver/mac64/134.0.6998.88/chromedriver-mac-arm64/chromedriver] found in cache
+2025-03-15 16:43:09,877 - UltrafastVogueScraper - INFO - Processing collection: Acne Studios
+2025-03-15 16:43:11,190 - UltrafastVogueScraper - INFO - Scrolling to load all content
+2025-03-15 16:43:11,191 - urllib3.connectionpool - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1028eb460>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/69149ef37addf1e7c39b1824b97f2112/execute/sync
+2025-03-15 16:43:11,192 - urllib3.connectionpool - WARNING - Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a6a9b0>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/69149ef37addf1e7c39b1824b97f2112/execute/sync
+2025-03-15 16:43:11,192 - urllib3.connectionpool - WARNING - Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a69750>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/69149ef37addf1e7c39b1824b97f2112/execute/sync
+2025-03-15 16:43:11,193 - UltrafastVogueScraper - ERROR - Error extracting collection looks from https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/atxv: HTTPConnectionPool(host='localhost', port=51603): Max retries exceeded with url: /session/69149ef37addf1e7c39b1824b97f2112/execute/sync (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a689d0>: Failed to establish a new connection: [Errno 61] Connection refused'))
+2025-03-15 16:43:11,193 - UltrafastVogueScraper - WARNING - No sections found for collection: ATXV
+2025-03-15 16:43:11,194 - urllib3.connectionpool - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a68760>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/69149ef37addf1e7c39b1824b97f2112
+2025-03-15 16:43:11,195 - urllib3.connectionpool - WARNING - Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a68610>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/69149ef37addf1e7c39b1824b97f2112
+2025-03-15 16:43:11,197 - urllib3.connectionpool - WARNING - Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a68520>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/69149ef37addf1e7c39b1824b97f2112
+2025-03-15 16:43:11,199 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:43:11,352 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:11,494 - WDM - INFO - Get LATEST chromedriver version for google-chrome
+2025-03-15 16:43:11,514 - UltrafastVogueScraper - ERROR - Error extracting collection looks from https://www.vogue.com/fashion-shows/fall-2025-ready-to-wear/acne-studios: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-03-15 16:43:11,514 - UltrafastVogueScraper - WARNING - No sections found for collection: Acne Studios
+2025-03-15 16:43:11,515 - urllib3.connectionpool - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1028e9540>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/c02712bfa38d732abbc1cb6ab49c2e86
+2025-03-15 16:43:11,515 - urllib3.connectionpool - WARNING - Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a69b10>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/67b70eed20f2e96455c22157c6f6339b
+2025-03-15 16:43:11,516 - urllib3.connectionpool - WARNING - Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a69ff0>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/67b70eed20f2e96455c22157c6f6339b
+2025-03-15 16:43:11,517 - urllib3.connectionpool - WARNING - Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a6a080>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/c02712bfa38d732abbc1cb6ab49c2e86
+2025-03-15 16:43:11,520 - urllib3.connectionpool - WARNING - Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a68af0>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/67b70eed20f2e96455c22157c6f6339b
+2025-03-15 16:43:11,521 - urllib3.connectionpool - WARNING - Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError('<urllib3.connection.HTTPConnection object at 0x102a6a860>: Failed to establish a new connection: [Errno 61] Connection refused')': /session/c02712bfa38d732abbc1cb6ab49c2e86
+2025-03-15 16:43:11,523 - WDM - INFO - ====== WebDriver manager ======
+2025-03-15 16:43:11,626 - WDM - INFO - Get LATEST chromedriver version for google-chrome
